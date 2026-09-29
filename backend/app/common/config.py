@@ -17,11 +17,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # noqa: S104
     port: int = 8000
 
     # Database
-    database_url: str = "postgresql+asyncpg://veridex:veridex@localhost:5432/veridex"
+    database_url: str = "postgresql+asyncpg://veridex:veridex@localhost:5433/veridex"
     database_echo: bool = False
     database_pool_size: int = 10
     database_max_overflow: int = 20
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Authentication
-    secret_key: str = "CHANGE-ME-IN-PRODUCTION-USE-A-REAL-SECRET-KEY"
+    secret_key: str = "CHANGE-ME-IN-PRODUCTION-USE-A-REAL-SECRET-KEY"  # noqa: S105
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_minutes: int = 10080  # 7 days

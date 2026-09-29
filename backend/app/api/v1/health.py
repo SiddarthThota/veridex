@@ -1,6 +1,7 @@
 """Health and readiness check endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -42,13 +43,13 @@ async def health_check() -> HealthResponse:
         service=settings.app_name,
         version=settings.app_version,
         environment=settings.environment,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )
 
 
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check(
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ReadinessResponse:
     """Readiness check — verifies database connectivity."""
     settings = get_settings()
@@ -68,5 +69,5 @@ async def readiness_check(
         service=settings.app_name,
         version=settings.app_version,
         checks=checks,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )

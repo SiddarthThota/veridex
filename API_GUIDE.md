@@ -50,3 +50,9 @@ All responses follow a consistent format:
   "detail": "Error description"
 }
 ```
+
+## Phase 2 Updates
+- POST /api/v1/auth/login: Accepts OAuth2 form data to return JWT.
+- GET /api/v1/users/me: Returns current authenticated user.
+- GET /api/v1/users: Lists users (Admin only).
+- GET /api/v1/organizations: Lists organizations (Admin only).

@@ -28,3 +28,9 @@
 ## Reporting Security Issues
 
 If you discover a security vulnerability, please report it responsibly.
+
+## Phase 2 Updates
+- Implemented strict RBAC via RequireRole dependency.
+- Added passlib bcrypt password hashing.
+- Implemented JWT-based stateless authentication.
+- Verified unprivileged roles (e.g. VIEWER) are correctly blocked from admin-only endpoints.

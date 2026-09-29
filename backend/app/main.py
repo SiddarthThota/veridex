@@ -1,14 +1,14 @@
 """Veridex FastAPI application factory."""
 
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_v1_router
 from app.common.config import get_settings
-from app.common.logging import setup_logging, get_logger
+from app.common.logging import get_logger, setup_logging
 
 
 @asynccontextmanager
