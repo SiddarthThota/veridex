@@ -1,13 +1,13 @@
 """Authentication API routes."""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
 
 from app.auth.deps import get_current_user
 from app.auth.security import create_access_token, verify_password

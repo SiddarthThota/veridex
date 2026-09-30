@@ -13,6 +13,7 @@ from app.common.config import get_settings
 settings = get_settings()
 
 import sys
+
 from sqlalchemy.pool import NullPool
 
 pool_kwargs = {}

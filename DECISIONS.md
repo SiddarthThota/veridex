@@ -20,3 +20,7 @@
 - Fixed Alembic asyncio test hang on Windows by patching env.py to use WindowsSelectorEventLoopPolicy.
 - Fixed Pytest teardown connection leak issues by using --asyncio-mode=auto and scoping event loops to session.
 - Opted to use explicit Pydantic models for response parsing rather than directly returning SQLAlchemy objects to avoid lazy-load detaching issues.
+
+## Phase 3 - Agent Registry
+- Implemented Agent and AgentVersion domain models.
+- Ensured teardown handles soft-deleted agents properly during pytest to prevent cascade-restrict Foreign Key violations.

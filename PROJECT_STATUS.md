@@ -49,7 +49,7 @@
 | 0     | Environment & Discovery         | ✅ COMPLETE | Environment assessed, constraints doc |
 | 1     | Architecture & Scaffolding      | ✅ COMPLETE | Backend, frontend, Docker, configs    |
 | 2     | Database & Authentication       | ✅ COMPLETE | PostgreSQL, SQLAlchemy, Alembic, JWT, RBAC |
-| 3     | Agent Registry                  | 🔲 PENDING  |                                       |
+| 3     | Agent Registry                  | ✅ COMPLETE | Built Agent, AgentVersion, API, schema     |
 | 4     | Tool Registry                   | 🔲 PENDING  |                                       |
 | 5     | Governance Gateway              | 🔲 PENDING  |                                       |
 | 6     | Policy Engine                   | 🔲 PENDING  |                                       |
