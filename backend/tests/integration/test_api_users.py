@@ -14,6 +14,7 @@ from app.users.models import Organization, OrganizationStatus, Role, User, UserS
 async def rbac_users(db_session: AsyncSession) -> AsyncGenerator[dict[str, dict[str, str]], None]:
     """Create a set of users with different roles for RBAC testing."""
     import uuid
+
     uid = uuid.uuid4()
     org = Organization(
         name=f"RBAC Test Org {uid}",
@@ -67,7 +68,9 @@ async def get_token(client: AsyncClient, email: str, password: str) -> str:
 @pytest.mark.asyncio
 async def test_list_users_admin(client: AsyncClient, rbac_users: dict[str, dict[str, str]]) -> None:  # noqa: E501
     """Test that ADMIN can list users."""
-    token = await get_token(client, rbac_users[Role.ADMIN]["email"], rbac_users[Role.ADMIN]["password"])  # noqa: E501
+    token = await get_token(
+        client, rbac_users[Role.ADMIN]["email"], rbac_users[Role.ADMIN]["password"]
+    )  # noqa: E501
 
     response = await client.get(
         "/api/v1/users",
@@ -79,9 +82,13 @@ async def test_list_users_admin(client: AsyncClient, rbac_users: dict[str, dict[
 
 
 @pytest.mark.asyncio
-async def test_list_users_viewer_denied(client: AsyncClient, rbac_users: dict[str, dict[str, str]]) -> None:  # noqa: E501
+async def test_list_users_viewer_denied(
+    client: AsyncClient, rbac_users: dict[str, dict[str, str]]
+) -> None:  # noqa: E501
     """Test that VIEWER cannot list users."""
-    token = await get_token(client, rbac_users[Role.VIEWER]["email"], rbac_users[Role.VIEWER]["password"])  # noqa: E501
+    token = await get_token(
+        client, rbac_users[Role.VIEWER]["email"], rbac_users[Role.VIEWER]["password"]
+    )  # noqa: E501
 
     response = await client.get(
         "/api/v1/users",

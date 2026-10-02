@@ -24,3 +24,9 @@
 ## Phase 3 - Agent Registry
 - Implemented Agent and AgentVersion domain models.
 - Ensured teardown handles soft-deleted agents properly during pytest to prevent cascade-restrict Foreign Key violations.
+
+## Phase 4 - Tool Registry
+- Implemented `Tool` and `ToolVersion` domains to act as the authoritative source of agent actions.
+- Categorized tools tightly with explicit `risk_level`, `access_type`, `reversibility`, `data_classification`, and `approval_requirement` to inform future policy decisions.
+- Default-deny architecture enforced by creating a relational `agent_tool_permissions` mapping table instead of storing arrays on the agent or tool.
+- Extended RBAC layer to ensure tools are strictly isolated by `organization_id`.

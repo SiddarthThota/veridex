@@ -37,8 +37,6 @@ async def get_my_organization(
     org = result.scalar_one_or_none()
 
     if not org:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
     return org

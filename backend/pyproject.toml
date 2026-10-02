@@ -11,7 +11,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0,<1.0",
     "pydantic>=2.9.0,<3.0",
     "pydantic-settings>=2.5.0,<3.0",
-    "sqlalchemy[asyncio]>=2.0.35,<3.0",
+    "sqlalchemy[asyncio]==2.0.35",
     "asyncpg>=0.30.0,<1.0",
     "alembic>=1.14.0,<2.0",
     "redis>=5.2.0,<6.0",
@@ -58,11 +58,15 @@ include = ["app*"]
 
 [tool.ruff]
 target-version = "py312"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "S", "T20"]
 ignore = ["S101", "S106"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105"]
+"app/cli.py" = ["S603"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

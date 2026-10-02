@@ -17,6 +17,7 @@ def setup_event_loop_policy() -> None:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Force session scope event loop to avoid AsyncEngine disposal errors."""
@@ -33,6 +34,7 @@ async def cleanup_database() -> AsyncGenerator[None, None]:
     """Clean up the database engine after tests to avoid unawaited connection warnings."""
     yield
     from app.database.session import engine
+
     await engine.dispose()
 
 
@@ -48,5 +50,6 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Database session fixture."""
     from app.database.session import async_session_factory
+
     async with async_session_factory() as session:
         yield session

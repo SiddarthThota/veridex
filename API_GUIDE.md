@@ -56,3 +56,14 @@ All responses follow a consistent format:
 - GET /api/v1/users/me: Returns current authenticated user.
 - GET /api/v1/users: Lists users (Admin only).
 - GET /api/v1/organizations: Lists organizations (Admin only).
+
+## Phase 3 Updates
+- POST /api/v1/agents: Creates an agent (Admin/Agent Operator).
+- GET /api/v1/agents/{agent_id}: Get specific agent details.
+- GET /api/v1/agents: List agents for the authenticated user's organization.
+
+## Phase 4 Updates
+- POST /api/v1/tools: Creates a tool (Admin/Agent Operator).
+- POST /api/v1/tools/{tool_id}/versions: Publish new tool versions.
+- POST /api/v1/agents/{agent_id}/tools/{tool_id}: Grant an agent permission to use a tool.
+- GET /api/v1/agents/{agent_id}/tools: View tools authorized for a given agent.

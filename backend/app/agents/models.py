@@ -67,9 +67,7 @@ class Agent(Base, UUIDMixin, TimestampMixin):
         "AgentVersion", back_populates="agent", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (
-        UniqueConstraint("organization_id", "slug", name="uq_agent_org_slug"),
-    )
+    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_agent_org_slug"),)
 
 
 class AgentVersion(Base, UUIDMixin, TimestampMixin):
@@ -94,6 +92,4 @@ class AgentVersion(Base, UUIDMixin, TimestampMixin):
 
     agent: Mapped["Agent"] = relationship("Agent", back_populates="versions")
 
-    __table_args__ = (
-        UniqueConstraint("agent_id", "version", name="uq_agent_version"),
-    )
+    __table_args__ = (UniqueConstraint("agent_id", "version", name="uq_agent_version"),)

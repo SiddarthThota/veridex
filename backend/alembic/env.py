@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.agents.models import Agent, AgentVersion  # noqa: F401
 from app.database.base import Base
+from app.tools.models import AgentToolPermission, Tool, ToolVersion  # noqa: F401
 from app.users.models import Organization, User  # noqa: F401
 
 # Alembic Config object
@@ -57,6 +58,7 @@ async def run_async_migrations() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     import sys
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(run_async_migrations())

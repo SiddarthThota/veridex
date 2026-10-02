@@ -15,7 +15,9 @@ from app.users.models import Role, User, UserStatus
 settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.api_v1_str}/auth/login" if hasattr(settings, "api_v1_str") else "/api/v1/auth/login",  # noqa: E501
+    tokenUrl=f"{settings.api_v1_str}/auth/login"
+    if hasattr(settings, "api_v1_str")
+    else "/api/v1/auth/login",  # noqa: E501
 )
 
 
@@ -30,9 +32,7 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.jwt_algorithm]
-        )
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
         user_id: str | None = payload.get("sub")
         if user_id is None:
             raise credentials_exception

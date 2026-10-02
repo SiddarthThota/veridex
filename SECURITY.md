@@ -34,3 +34,8 @@ If you discover a security vulnerability, please report it responsibly.
 - Added passlib bcrypt password hashing.
 - Implemented JWT-based stateless authentication.
 - Verified unprivileged roles (e.g. VIEWER) are correctly blocked from admin-only endpoints.
+
+## Phase 4 Updates
+- Implemented default-deny agent-tool mappings. Agents must be explicitly granted permission to use any registered tool.
+- Established strict organizational isolation for tool queries and permissions to ensure cross-org data leakage is prevented.
+- Integrated risk_level and access_type properties for fine-grained authorization layers downstream.

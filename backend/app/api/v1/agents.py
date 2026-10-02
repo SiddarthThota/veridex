@@ -37,7 +37,8 @@ async def create_agent(
     """Create a new agent."""
     # Check for duplicate agent slug within the same org
     import re
-    slug = re.sub(r'[^a-z0-9]+', '-', agent_in.name.lower()).strip('-')
+
+    slug = re.sub(r"[^a-z0-9]+", "-", agent_in.name.lower()).strip("-")
     existing_agent = await agents_service.get_agent_by_slug(
         db, organization_id=uuid.UUID(str(current_user.organization_id)), slug=slug
     )
@@ -120,6 +121,7 @@ async def update_agent(
         from sqlalchemy import select
 
         from app.users import models as users_models
+
         stmt = select(users_models.User).where(users_models.User.id == agent_in.owner_user_id)
         result = await db.execute(stmt)
         new_owner = result.scalar_one_or_none()
@@ -204,7 +206,9 @@ async def deactivate_agent(
             detail="Agent is already deactivated.",
         )
 
-    agent = await agents_service.change_agent_status(db, agent=agent, status=AgentStatus.DEACTIVATED)
+    agent = await agents_service.change_agent_status(
+        db, agent=agent, status=AgentStatus.DEACTIVATED
+    )
     return agent
 
 
@@ -243,10 +247,11 @@ async def create_agent_version(
 
     # Check if version exists
     from sqlalchemy import select
+
     from app.agents.models import AgentVersion
+
     stmt = select(AgentVersion).where(
-        AgentVersion.agent_id == agent_id,
-        AgentVersion.version == version_string
+        AgentVersion.agent_id == agent_id, AgentVersion.version == version_string
     )
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
@@ -263,3 +268,75 @@ async def create_agent_version(
         version_string=version_string,
     )
     return version
+
+
+@router.get("/{agent_id}/tools", response_model=list[dict[str, Any]])
+async def list_agent_tools(
+    agent_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Any:
+    """List all tools an agent has access to."""
+    agent = await agents_service.get_agent(db, agent_id=agent_id)
+    if not agent or agent.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    from app.tools import service as tools_service
+
+    perms = await tools_service.list_agent_tools(db, agent_id=agent_id)
+    return [{"tool_id": p.tool_id, "allowed": p.allowed, "created_at": p.created_at} for p in perms]
+
+
+@router.post(
+    "/{agent_id}/tools/{tool_id}",
+    response_model=dict[str, Any],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(RequireRole([Role.ADMIN, Role.AGENT_OPERATOR]))],
+)
+async def grant_agent_tool_access(
+    agent_id: uuid.UUID,
+    tool_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Any:
+    """Grant an agent access to a tool."""
+    agent = await agents_service.get_agent(db, agent_id=agent_id)
+    if not agent or agent.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    from app.tools import service as tools_service
+
+    tool = await tools_service.get_tool(db, tool_id=tool_id)
+    if not tool or tool.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found")
+
+    perm = await tools_service.grant_tool_access(
+        db, agent_id=agent_id, tool_id=tool_id, user_id=current_user.id
+    )
+    return {"agent_id": perm.agent_id, "tool_id": perm.tool_id, "allowed": perm.allowed}
+
+
+@router.delete(
+    "/{agent_id}/tools/{tool_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(RequireRole([Role.ADMIN, Role.AGENT_OPERATOR]))],
+)
+async def revoke_agent_tool_access(
+    agent_id: uuid.UUID,
+    tool_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """Revoke an agent's access to a tool."""
+    agent = await agents_service.get_agent(db, agent_id=agent_id)
+    if not agent or agent.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    from app.tools import service as tools_service
+
+    tool = await tools_service.get_tool(db, tool_id=tool_id)
+    if not tool or tool.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found")
+
+    await tools_service.revoke_tool_access(db, agent_id=agent_id, tool_id=tool_id)
+    return None

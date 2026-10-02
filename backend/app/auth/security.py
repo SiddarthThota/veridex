@@ -23,35 +23,23 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(
-    subject: str | Any, expires_delta: timedelta | None = None
-) -> str:
+def create_access_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
     """Create a JWT access token."""
     if expires_delta:
         expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(UTC) + timedelta(
-            minutes=settings.access_token_expire_minutes
-        )
+        expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode = {"exp": expire, "sub": str(subject)}
-    encoded_jwt = jwt.encode(
-        to_encode, settings.secret_key, algorithm=settings.jwt_algorithm
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
 
 
-def create_refresh_token(
-    subject: str | Any, expires_delta: timedelta | None = None
-) -> str:
+def create_refresh_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
     """Create a JWT refresh token."""
     if expires_delta:
         expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(UTC) + timedelta(
-            minutes=settings.refresh_token_expire_minutes
-        )
+        expire = datetime.now(UTC) + timedelta(minutes=settings.refresh_token_expire_minutes)
     to_encode = {"exp": expire, "sub": str(subject), "type": "refresh"}
-    encoded_jwt = jwt.encode(
-        to_encode, settings.secret_key, algorithm=settings.jwt_algorithm
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt

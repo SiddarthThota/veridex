@@ -13,6 +13,7 @@ async def test_organization_and_user_creation(db_session: AsyncSession) -> None:
 
     # Create Organization
     import uuid
+
     org_slug = f"test-org-{uuid.uuid4()}"
     org = Organization(
         name="Test Org",

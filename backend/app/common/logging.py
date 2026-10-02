@@ -67,5 +67,6 @@ def setup_logging() -> None:
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    """Get a structured logger with the given name."""
-    return structlog.get_logger(name)
+    from typing import cast
+
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))

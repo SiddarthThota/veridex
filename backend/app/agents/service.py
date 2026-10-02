@@ -19,9 +19,7 @@ async def get_agent(db: AsyncSession, agent_id: uuid.UUID) -> Agent | None:
 async def get_agent_by_slug(
     db: AsyncSession, organization_id: uuid.UUID, slug: str
 ) -> Agent | None:
-    stmt = select(Agent).where(
-        Agent.organization_id == organization_id, Agent.slug == slug
-    )
+    stmt = select(Agent).where(Agent.organization_id == organization_id, Agent.slug == slug)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -45,14 +43,12 @@ async def list_agents(
 
 
 async def create_agent(
-    db: AsyncSession,
-    organization_id: uuid.UUID,
-    owner_user_id: uuid.UUID,
-    agent_in: AgentCreate
+    db: AsyncSession, organization_id: uuid.UUID, owner_user_id: uuid.UUID, agent_in: AgentCreate
 ) -> Agent:
     import re
+
     # Generate slug from name
-    slug = re.sub(r'[^a-z0-9]+', '-', agent_in.name.lower()).strip('-')
+    slug = re.sub(r"[^a-z0-9]+", "-", agent_in.name.lower()).strip("-")
 
     agent = Agent(
         organization_id=organization_id,
@@ -64,7 +60,7 @@ async def create_agent(
         risk_tier=agent_in.risk_tier,
         model_provider=agent_in.model_provider,
         model_name=agent_in.model_name,
-        status=AgentStatus.DRAFT
+        status=AgentStatus.DRAFT,
     )
     db.add(agent)
     await db.flush()
@@ -84,9 +80,7 @@ async def create_agent(
     return agent
 
 
-async def update_agent(
-    db: AsyncSession, agent: Agent, agent_in: AgentUpdate
-) -> Agent:
+async def update_agent(db: AsyncSession, agent: Agent, agent_in: AgentUpdate) -> Agent:
     if agent_in.description is not None:
         agent.description = agent_in.description
     if agent_in.environment is not None:
@@ -100,9 +94,7 @@ async def update_agent(
     return agent
 
 
-async def change_agent_status(
-    db: AsyncSession, agent: Agent, status: AgentStatus
-) -> Agent:
+async def change_agent_status(db: AsyncSession, agent: Agent, status: AgentStatus) -> Agent:
     agent.status = status
     db.add(agent)
     await db.commit()
@@ -110,10 +102,12 @@ async def change_agent_status(
     return agent
 
 
-async def get_agent_versions(
-    db: AsyncSession, agent_id: uuid.UUID
-) -> Sequence[AgentVersion]:
-    stmt = select(AgentVersion).where(AgentVersion.agent_id == agent_id).order_by(AgentVersion.created_at.desc())
+async def get_agent_versions(db: AsyncSession, agent_id: uuid.UUID) -> Sequence[AgentVersion]:
+    stmt = (
+        select(AgentVersion)
+        .where(AgentVersion.agent_id == agent_id)
+        .order_by(AgentVersion.created_at.desc())
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -133,7 +127,7 @@ async def create_agent_version(
     agent: Agent,
     user_id: uuid.UUID,
     version_in: AgentVersionCreate,
-    version_string: str
+    version_string: str,
 ) -> AgentVersion:
     version = AgentVersion(
         agent_id=agent.id,
@@ -143,7 +137,7 @@ async def create_agent_version(
         model_name=version_in.model_name,
         configuration_metadata=version_in.configuration_metadata,
         created_by=user_id,
-        status=AgentVersionStatus.DRAFT
+        status=AgentVersionStatus.DRAFT,
     )
     db.add(version)
     await db.commit()

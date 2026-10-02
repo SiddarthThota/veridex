@@ -14,6 +14,7 @@ from app.users.models import Organization, OrganizationStatus, Role, User, UserS
 async def test_user(db_session: AsyncSession) -> AsyncGenerator[dict[str, str], None]:
     """Create a test organization and user."""
     import uuid
+
     uid = uuid.uuid4()
     org = Organization(
         name=f"API Test Org {uid}",

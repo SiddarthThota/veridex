@@ -6,15 +6,16 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.models import Agent
 from app.auth.security import get_password_hash
 from app.users.models import Organization, OrganizationStatus, Role, User, UserStatus
-from app.agents.models import Agent
 
 
 @pytest.fixture
 async def admin_user(db_session: AsyncSession) -> AsyncGenerator[dict[str, str], None]:
     """Create a test admin user."""
     import uuid
+
     uid = uuid.uuid4()
     org = Organization(
         name=f"Org {uid}",
@@ -46,6 +47,7 @@ async def admin_user(db_session: AsyncSession) -> AsyncGenerator[dict[str, str],
     }
 
     from sqlalchemy import delete
+
     await db_session.execute(delete(Agent).where(Agent.organization_id == org.id))
     await db_session.commit()
 
@@ -53,10 +55,14 @@ async def admin_user(db_session: AsyncSession) -> AsyncGenerator[dict[str, str],
     await db_session.delete(org)
     await db_session.commit()
 
+
 @pytest.fixture
-async def viewer_user(db_session: AsyncSession, admin_user: dict[str, str]) -> AsyncGenerator[dict[str, str], None]:
+async def viewer_user(
+    db_session: AsyncSession, admin_user: dict[str, str]
+) -> AsyncGenerator[dict[str, str], None]:
     """Create a test viewer user in the same org."""
     import uuid
+
     uid = uuid.uuid4()
 
     password = "MySecurePassword123"
@@ -80,6 +86,7 @@ async def viewer_user(db_session: AsyncSession, admin_user: dict[str, str]) -> A
     }
 
     from sqlalchemy import delete
+
     await db_session.execute(delete(Agent).where(Agent.owner_user_id == user.id))
     await db_session.commit()
 
@@ -106,9 +113,7 @@ async def viewer_token(client: AsyncClient, viewer_user: dict[str, str]) -> str:
 
 
 @pytest.mark.asyncio
-async def test_create_agent_success(
-    client: AsyncClient, admin_token: str
-) -> None:
+async def test_create_agent_success(client: AsyncClient, admin_token: str) -> None:
     response = await client.post(
         "/api/v1/agents",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -118,8 +123,8 @@ async def test_create_agent_success(
             "environment": "DEVELOPMENT",
             "risk_tier": "LOW",
             "model_provider": "openai",
-            "model_name": "gpt-4o"
-        }
+            "model_name": "gpt-4o",
+        },
     )
     assert response.status_code == 201
     data = response.json()
@@ -127,35 +132,28 @@ async def test_create_agent_success(
     assert data["slug"] == "test-agent"
     assert data["status"] == "DRAFT"
 
+
 @pytest.mark.asyncio
-async def test_create_agent_duplicate_name(
-    client: AsyncClient, admin_token: str
-) -> None:
+async def test_create_agent_duplicate_name(client: AsyncClient, admin_token: str) -> None:
     payload = {
         "name": "Test Agent Duplicate",
         "description": "A test agent",
         "environment": "DEVELOPMENT",
         "risk_tier": "LOW",
         "model_provider": "openai",
-        "model_name": "gpt-4o"
+        "model_name": "gpt-4o",
     }
     await client.post(
-        "/api/v1/agents",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json=payload
+        "/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload
     )
     response = await client.post(
-        "/api/v1/agents",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json=payload
+        "/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload
     )
     assert response.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_viewer_cannot_create_agent(
-    client: AsyncClient, viewer_token: str
-) -> None:
+async def test_viewer_cannot_create_agent(client: AsyncClient, viewer_token: str) -> None:
     response = await client.post(
         "/api/v1/agents",
         headers={"Authorization": f"Bearer {viewer_token}"},
@@ -164,16 +162,14 @@ async def test_viewer_cannot_create_agent(
             "environment": "DEVELOPMENT",
             "risk_tier": "LOW",
             "model_provider": "openai",
-            "model_name": "gpt-4o"
-        }
+            "model_name": "gpt-4o",
+        },
     )
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_agent_lifecycle(
-    client: AsyncClient, admin_token: str
-) -> None:
+async def test_agent_lifecycle(client: AsyncClient, admin_token: str) -> None:
     # Create
     response = await client.post(
         "/api/v1/agents",
@@ -183,48 +179,42 @@ async def test_agent_lifecycle(
             "environment": "DEVELOPMENT",
             "risk_tier": "LOW",
             "model_provider": "openai",
-            "model_name": "gpt-4o"
-        }
+            "model_name": "gpt-4o",
+        },
     )
     assert response.status_code == 201
     agent_id = response.json()["id"]
 
     # Activate
     response = await client.post(
-        f"/api/v1/agents/{agent_id}/activate",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"/api/v1/agents/{agent_id}/activate", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert response.status_code == 200
     assert response.json()["status"] == "ACTIVE"
 
     # Suspend
     response = await client.post(
-        f"/api/v1/agents/{agent_id}/suspend",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"/api/v1/agents/{agent_id}/suspend", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert response.status_code == 200
     assert response.json()["status"] == "SUSPENDED"
 
     # Deactivate
     response = await client.post(
-        f"/api/v1/agents/{agent_id}/deactivate",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"/api/v1/agents/{agent_id}/deactivate", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert response.status_code == 200
     assert response.json()["status"] == "DEACTIVATED"
 
     # Try to deactivate again
     response = await client.post(
-        f"/api/v1/agents/{agent_id}/deactivate",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"/api/v1/agents/{agent_id}/deactivate", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert response.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_create_agent_version(
-    client: AsyncClient, admin_token: str
-) -> None:
+async def test_create_agent_version(client: AsyncClient, admin_token: str) -> None:
     # Create Agent
     response = await client.post(
         "/api/v1/agents",
@@ -234,18 +224,17 @@ async def test_create_agent_version(
             "environment": "DEVELOPMENT",
             "risk_tier": "LOW",
             "model_provider": "openai",
-            "model_name": "gpt-4o"
-        }
+            "model_name": "gpt-4o",
+        },
     )
     agent_id = response.json()["id"]
 
     # List Versions
     response = await client.get(
-        f"/api/v1/agents/{agent_id}/versions",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"/api/v1/agents/{agent_id}/versions", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert response.status_code == 200
-    assert len(response.json()) == 1 # Draft version created automatically
+    assert len(response.json()) == 1  # Draft version created automatically
 
     # Create Version
     response = await client.post(
@@ -254,8 +243,8 @@ async def test_create_agent_version(
         json={
             "model_provider": "anthropic",
             "model_name": "claude-3",
-            "system_configuration": {"prompt": "Be nice."}
-        }
+            "system_configuration": {"prompt": "Be nice."},
+        },
     )
     assert response.status_code == 201
     assert response.json()["version"] == "1.0.0"

@@ -65,3 +65,13 @@ logs/
 *.key
 *.cert
 secrets/
+
+backend/.venv/
+backend/ruff/
+backend/ruff.zip
+backend/get-pip-log.txt
+backend/mypy-errors*.txt
+backend/mypy-out*.txt
+backend/ruff-errors*.txt
+backend/ruff-out*.txt
+backend/uv-log*.txt

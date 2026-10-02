@@ -158,6 +158,17 @@ flowchart TD
     style P fill:#44bb44,color:#fff
 ```
 
+## Agent to Tool Architecture
+
+```mermaid
+graph TD
+    Organization --> Agent
+    Agent --> AgentToolPermission[Agent ↔ Tool Permission]
+    AgentToolPermission --> Tool
+    Tool --> ToolVersion
+```
+
+
 ## Database ERD (Core)
 
 ```mermaid
