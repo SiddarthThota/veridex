@@ -230,9 +230,7 @@ async def create_tool_version(
 
     from app.tools.models import ToolVersion
 
-    stmt = select(ToolVersion).where(
-        ToolVersion.tool_id == tool_id, ToolVersion.version == version_in.version
-    )
+    stmt = select(ToolVersion).where(ToolVersion.tool_id == tool_id, ToolVersion.version == version_in.version)
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -288,8 +286,6 @@ async def publish_tool_version(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool version not found")
 
     if version.status != ToolVersionStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Can only publish DRAFT versions."
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Can only publish DRAFT versions.")
 
     return await tools_service.publish_tool_version(db, version=version)

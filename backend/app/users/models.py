@@ -36,9 +36,7 @@ class Organization(Base, UUIDMixin, TimestampMixin):
         Enum(OrganizationStatus), default=OrganizationStatus.ACTIVE, nullable=False
     )
 
-    users: Mapped[list["User"]] = relationship(
-        "User", back_populates="organization", cascade="all, delete-orphan"
-    )
+    users: Mapped[list["User"]] = relationship("User", back_populates="organization", cascade="all, delete-orphan")
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -50,9 +48,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[UserStatus] = mapped_column(
-        Enum(UserStatus), default=UserStatus.ACTIVE, nullable=False
-    )
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE, nullable=False)
     role: Mapped[Role] = mapped_column(Enum(Role), default=Role.VIEWER, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

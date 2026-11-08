@@ -33,9 +33,7 @@ class UserResponse(BaseModel):
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[
-        User, Depends(RequireRole([Role.ADMIN, Role.SECURITY_ANALYST, Role.AUDITOR]))
-    ],
+    current_user: Annotated[User, Depends(RequireRole([Role.ADMIN, Role.SECURITY_ANALYST, Role.AUDITOR]))],
 ) -> Sequence[User]:
     """List users in the organization."""
     # Enforce isolation to the current user's organization

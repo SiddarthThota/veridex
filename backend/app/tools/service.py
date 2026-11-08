@@ -110,18 +110,12 @@ async def change_tool_status(db: AsyncSession, tool: Tool, status: ToolStatus) -
 
 
 async def get_tool_versions(db: AsyncSession, tool_id: uuid.UUID) -> Sequence[ToolVersion]:
-    stmt = (
-        select(ToolVersion)
-        .where(ToolVersion.tool_id == tool_id)
-        .order_by(ToolVersion.created_at.desc())
-    )
+    stmt = select(ToolVersion).where(ToolVersion.tool_id == tool_id).order_by(ToolVersion.created_at.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
 
 
-async def get_tool_version(
-    db: AsyncSession, tool_id: uuid.UUID, version_id: uuid.UUID
-) -> ToolVersion | None:
+async def get_tool_version(db: AsyncSession, tool_id: uuid.UUID, version_id: uuid.UUID) -> ToolVersion | None:
     stmt = select(ToolVersion).where(ToolVersion.tool_id == tool_id, ToolVersion.id == version_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()

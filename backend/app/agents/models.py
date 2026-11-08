@@ -48,15 +48,11 @@ class Agent(Base, UUIDMixin, TimestampMixin):
     owner_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), index=True, nullable=False
     )
-    status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus), default=AgentStatus.DRAFT, nullable=False
-    )
+    status: Mapped[AgentStatus] = mapped_column(Enum(AgentStatus), default=AgentStatus.DRAFT, nullable=False)
     environment: Mapped[AgentEnvironment] = mapped_column(
         Enum(AgentEnvironment), default=AgentEnvironment.DEVELOPMENT, nullable=False
     )
-    risk_tier: Mapped[AgentRiskTier] = mapped_column(
-        Enum(AgentRiskTier), default=AgentRiskTier.LOW, nullable=False
-    )
+    risk_tier: Mapped[AgentRiskTier] = mapped_column(Enum(AgentRiskTier), default=AgentRiskTier.LOW, nullable=False)
 
     model_provider: Mapped[str] = mapped_column(String(255), nullable=False)
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -73,9 +69,7 @@ class Agent(Base, UUIDMixin, TimestampMixin):
 class AgentVersion(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "agent_versions"
 
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
 
     system_configuration: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -83,9 +77,7 @@ class AgentVersion(Base, UUIDMixin, TimestampMixin):
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
     configuration_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[AgentVersionStatus] = mapped_column(
         Enum(AgentVersionStatus), default=AgentVersionStatus.DRAFT, nullable=False
     )

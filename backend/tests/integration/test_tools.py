@@ -9,9 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 pytestmark = pytest.mark.asyncio
 
 
-async def test_viewer_cannot_create_tool(
-    client: AsyncClient, viewer_token_headers: dict[str, str]
-) -> None:
+async def test_viewer_cannot_create_tool(client: AsyncClient, viewer_token_headers: dict[str, str]) -> None:
     response = await client.post(
         "/api/v1/tools",
         headers=viewer_token_headers,
@@ -28,9 +26,7 @@ async def test_viewer_cannot_create_tool(
     assert response.status_code == 403
 
 
-async def test_admin_create_tool_and_lifecycle(
-    client: AsyncClient, admin_token_headers: dict[str, str]
-) -> None:
+async def test_admin_create_tool_and_lifecycle(client: AsyncClient, admin_token_headers: dict[str, str]) -> None:
     # 1. Create tool
     response = await client.post(
         "/api/v1/tools",
@@ -53,9 +49,7 @@ async def test_admin_create_tool_and_lifecycle(
     tool_id = data["id"]
 
     # 2. Get tool versions (should have draft)
-    ver_response = await client.get(
-        f"/api/v1/tools/{tool_id}/versions", headers=admin_token_headers
-    )
+    ver_response = await client.get(f"/api/v1/tools/{tool_id}/versions", headers=admin_token_headers)
     assert ver_response.status_code == 200
     versions = ver_response.json()
     assert len(versions) == 1
@@ -63,16 +57,12 @@ async def test_admin_create_tool_and_lifecycle(
     assert versions[0]["status"] == "DRAFT"
 
     # 3. Activate tool
-    activate_response = await client.post(
-        f"/api/v1/tools/{tool_id}/activate", headers=admin_token_headers
-    )
+    activate_response = await client.post(f"/api/v1/tools/{tool_id}/activate", headers=admin_token_headers)
     assert activate_response.status_code == 200
     assert activate_response.json()["status"] == "ACTIVE"
 
     # 4. Suspend tool
-    suspend_response = await client.post(
-        f"/api/v1/tools/{tool_id}/suspend", headers=admin_token_headers
-    )
+    suspend_response = await client.post(f"/api/v1/tools/{tool_id}/suspend", headers=admin_token_headers)
     assert suspend_response.status_code == 200
     assert suspend_response.json()["status"] == "SUSPENDED"
 
@@ -100,9 +90,7 @@ async def test_cross_org_tool_access_blocked(
     assert get_response.status_code in [403, 404]
 
 
-async def test_agent_tool_permissions(
-    client: AsyncClient, admin_token_headers: dict[str, str]
-) -> None:
+async def test_agent_tool_permissions(client: AsyncClient, admin_token_headers: dict[str, str]) -> None:
     # Admin creates agent
     agent_resp = await client.post(
         "/api/v1/agents",
@@ -148,9 +136,7 @@ async def test_agent_tool_permissions(
     assert tools[0]["tool_id"] == tool_id
 
     # Revoke access
-    revoke_resp = await client.delete(
-        f"/api/v1/agents/{agent_id}/tools/{tool_id}", headers=admin_token_headers
-    )
+    revoke_resp = await client.delete(f"/api/v1/agents/{agent_id}/tools/{tool_id}", headers=admin_token_headers)
     assert revoke_resp.status_code == 204
 
     # List agent tools again
@@ -182,9 +168,7 @@ async def admin_token_headers(client: AsyncClient, db_session: AsyncSession) -> 
     )
     db_session.add(user)
     await db_session.commit()
-    response = await client.post(
-        "/api/v1/auth/login", data={"username": user.email, "password": test_password}
-    )
+    response = await client.post("/api/v1/auth/login", data={"username": user.email, "password": test_password})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
@@ -209,16 +193,12 @@ async def viewer_token_headers(client: AsyncClient, db_session: AsyncSession) ->
     )
     db_session.add(user)
     await db_session.commit()
-    response = await client.post(
-        "/api/v1/auth/login", data={"username": user.email, "password": test_password}
-    )
+    response = await client.post("/api/v1/auth/login", data={"username": user.email, "password": test_password})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.fixture
-async def analyst_org2_token_headers(
-    client: AsyncClient, db_session: AsyncSession
-) -> dict[str, str]:
+async def analyst_org2_token_headers(client: AsyncClient, db_session: AsyncSession) -> dict[str, str]:
     from app.auth.security import get_password_hash
     from app.users.models import Organization, OrganizationStatus, Role, User, UserStatus
 
@@ -238,7 +218,5 @@ async def analyst_org2_token_headers(
     )
     db_session.add(user)
     await db_session.commit()
-    response = await client.post(
-        "/api/v1/auth/login", data={"username": user.email, "password": test_password}
-    )
+    response = await client.post("/api/v1/auth/login", data={"username": user.email, "password": test_password})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}

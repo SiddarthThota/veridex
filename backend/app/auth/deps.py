@@ -1,5 +1,6 @@
 """Authentication and authorization dependencies for FastAPI."""
 
+import uuid
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -15,9 +16,7 @@ from app.users.models import Role, User, UserStatus
 settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.api_v1_str}/auth/login"
-    if hasattr(settings, "api_v1_str")
-    else "/api/v1/auth/login",  # noqa: E501
+    tokenUrl=f"{settings.api_v1_str}/auth/login" if hasattr(settings, "api_v1_str") else "/api/v1/auth/login",  # noqa: E501
 )
 
 
@@ -39,7 +38,12 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception from None
 
-    stmt = select(User).where(User.id == user_id)
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise credentials_exception from None
+
+    stmt = select(User).where(User.id == user_uuid)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 

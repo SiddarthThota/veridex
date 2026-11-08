@@ -59,6 +59,7 @@ logs/
 # Database
 *.db
 *.sqlite
+*.sqlite3
 
 # Secrets — NEVER commit
 *.pem

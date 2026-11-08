@@ -30,3 +30,16 @@
 - Categorized tools tightly with explicit `risk_level`, `access_type`, `reversibility`, `data_classification`, and `approval_requirement` to inform future policy decisions.
 - Default-deny architecture enforced by creating a relational `agent_tool_permissions` mapping table instead of storing arrays on the agent or tool.
 - Extended RBAC layer to ensure tools are strictly isolated by `organization_id`.
+
+## Phase 5 - Governance Gateway & Execution Isolation
+- **ADR-005: Deterministic Default-Deny Governance Gateway & Sandboxing**
+  - **Context:** Allowing AI agents to directly invoke backend tools introduces severe risks including privilege escalation, prompt injection, unauthorized mutations, and state desynchronization.
+  - **Decision:**
+    1. *Deterministic Default-Deny:* Every invocation intent must be captured as a `ToolRequest` and pass through `GovernanceService._evaluate_policy`. Outcomes are strictly `ALLOW`, `DENY`, or `REQUIRE_APPROVAL`.
+    2. *Strict Decision Precedence:* Hard identity, active status, tool version publication, agent permission, and schema validation failures result immediately in `DENY`. Risk-based human approval is evaluated only after all mandatory security checks succeed.
+    3. *Exact ToolVersion Binding:* Every `ToolRequest` must reference a published, immutable `ToolVersion`.
+    4. *Cryptographic Approval Integrity:* Tool arguments and versions are hashed via canonical SHA-256 (`compute_arguments_hash`). Approving an action re-verifies this hash before execution, preventing payload tampering or replay.
+    5. *Role Separation:* Agent Operators who initiate runs/requests cannot approve them. Approval actions are restricted strictly to `ADMIN` and `SECURITY_ANALYST`.
+    6. *Execution Sandboxing:* Handlers are restricted to a closed trusted registry (`calculator`, `echo`, `system-status`, `data-lookup`). Arbitrary Python, shell commands, or unvetted scripts are strictly rejected. Timeouts are enforced via `asyncio.wait_for` and failures are persisted.
+    7. *Dry-Run Safety:* The `/api/v1/governance/evaluate` endpoint guarantees zero execution side effects and no database mutations.
+  - **Consequences:** Provides an enterprise-grade, deterministic, and auditable security perimeter around agent execution. Eliminates execution of unvetted code while enabling controlled human oversight.

@@ -67,3 +67,85 @@ All responses follow a consistent format:
 - POST /api/v1/tools/{tool_id}/versions: Publish new tool versions.
 - POST /api/v1/agents/{agent_id}/tools/{tool_id}: Grant an agent permission to use a tool.
 - GET /api/v1/agents/{agent_id}/tools: View tools authorized for a given agent.
+
+## Phase 5 Updates — Governance Gateway & Execution Isolation
+
+### Agent Runs (`/api/v1/runs`)
+
+| Method | Path | Required Role | Description |
+|--------|------|---------------|-------------|
+| POST | `/api/v1/runs` | ADMIN, AGENT_OPERATOR | Create a new agent execution run/session |
+| GET | `/api/v1/runs` | Any authenticated | List agent runs (supports filtering by `agent_id` and `status`) |
+| GET | `/api/v1/runs/{run_id}` | Any authenticated | Retrieve detailed status and telemetry for a specific run |
+| PATCH | `/api/v1/runs/{run_id}/status` | ADMIN, AGENT_OPERATOR | Update the lifecycle status of an agent run (`RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`) |
+| POST | `/api/v1/runs/{run_id}/invocations` | ADMIN, AGENT_OPERATOR | Invoke a tool within a run through the deterministic Governance Gateway |
+| GET | `/api/v1/runs/{run_id}/invocations` | Any authenticated | List all tool invocation requests and execution outcomes for a run |
+
+#### Tool Invocation Request Payload:
+```json
+{
+  "tool_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "tool_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
+  "arguments": {
+    "expression": "42 * 2"
+  },
+  "idempotency_key": "inv-001"
+}
+```
+
+#### Tool Invocation Response:
+```json
+{
+  "decision": "ALLOW",
+  "violation_codes": [],
+  "tool_request_id": "3fa85f64-5717-4562-b3fc-2c963f66afa8",
+  "execution": {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa9",
+    "status": "COMPLETED",
+    "output_payload": {"result": 84},
+    "error_message": null,
+    "duration_ms": 12.5
+  },
+  "approval_request_id": null
+}
+```
+
+### Governance & Approvals (`/api/v1/governance`)
+
+| Method | Path | Required Role | Description |
+|--------|------|---------------|-------------|
+| POST | `/api/v1/governance/evaluate` | Any authenticated | Dry-run governance evaluation without tool execution or state creation |
+| GET | `/api/v1/governance/approvals` | Any authenticated | List pending and decided approval requests |
+| GET | `/api/v1/governance/approvals/{approval_id}` | Any authenticated | Get detailed view of an approval request with originating tool intent |
+| POST | `/api/v1/governance/approvals/{approval_id}/decide` | ADMIN, SECURITY_ANALYST | Approve or reject a pending approval request (Agent Operator forbidden) |
+
+#### Governance Dry-Run Evaluation Request:
+```json
+{
+  "agent_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "tool_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
+  "tool_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa8",
+  "arguments": {
+    "action": "delete_all"
+  }
+}
+```
+
+#### Governance Dry-Run Evaluation Response:
+```json
+{
+  "decision": "REQUIRE_APPROVAL",
+  "violation_codes": ["APPROVAL_REQUIRED"],
+  "requires_approval": true,
+  "message": "Evaluation decision: REQUIRE_APPROVAL"
+}
+```
+
+#### Approval Decision Request:
+```json
+{
+  "decision": "APPROVED",
+  "reason": "Verified maintenance window with database team."
+}
+```
+*Note: Approving automatically re-validates argument integrity hashes against the published tool version before triggering safe isolated execution.*

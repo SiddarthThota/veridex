@@ -206,9 +206,7 @@ async def deactivate_agent(
             detail="Agent is already deactivated.",
         )
 
-    agent = await agents_service.change_agent_status(
-        db, agent=agent, status=AgentStatus.DEACTIVATED
-    )
+    agent = await agents_service.change_agent_status(db, agent=agent, status=AgentStatus.DEACTIVATED)
     return agent
 
 
@@ -250,9 +248,7 @@ async def create_agent_version(
 
     from app.agents.models import AgentVersion
 
-    stmt = select(AgentVersion).where(
-        AgentVersion.agent_id == agent_id, AgentVersion.version == version_string
-    )
+    stmt = select(AgentVersion).where(AgentVersion.agent_id == agent_id, AgentVersion.version == version_string)
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -310,9 +306,7 @@ async def grant_agent_tool_access(
     if not tool or tool.organization_id != current_user.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found")
 
-    perm = await tools_service.grant_tool_access(
-        db, agent_id=agent_id, tool_id=tool_id, user_id=current_user.id
-    )
+    perm = await tools_service.grant_tool_access(db, agent_id=agent_id, tool_id=tool_id, user_id=current_user.id)
     return {"agent_id": perm.agent_id, "tool_id": perm.tool_id, "allowed": perm.allowed}
 
 

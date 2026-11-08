@@ -57,9 +57,7 @@ async def admin_user(db_session: AsyncSession) -> AsyncGenerator[dict[str, str],
 
 
 @pytest.fixture
-async def viewer_user(
-    db_session: AsyncSession, admin_user: dict[str, str]
-) -> AsyncGenerator[dict[str, str], None]:
+async def viewer_user(db_session: AsyncSession, admin_user: dict[str, str]) -> AsyncGenerator[dict[str, str], None]:
     """Create a test viewer user in the same org."""
     import uuid
 
@@ -143,12 +141,8 @@ async def test_create_agent_duplicate_name(client: AsyncClient, admin_token: str
         "model_provider": "openai",
         "model_name": "gpt-4o",
     }
-    await client.post(
-        "/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload
-    )
-    response = await client.post(
-        "/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload
-    )
+    await client.post("/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload)
+    response = await client.post("/api/v1/agents", headers={"Authorization": f"Bearer {admin_token}"}, json=payload)
     assert response.status_code == 409
 
 

@@ -96,9 +96,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("agent_id", "version", name="uq_agent_version"),
     )
-    op.create_index(
-        op.f("ix_agent_versions_agent_id"), "agent_versions", ["agent_id"], unique=False
-    )
+    op.create_index(op.f("ix_agent_versions_agent_id"), "agent_versions", ["agent_id"], unique=False)
     # ### end Alembic commands ###
 
 

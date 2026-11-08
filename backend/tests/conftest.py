@@ -31,9 +31,18 @@ def event_loop():
 
 @pytest.fixture(scope="session", autouse=True)
 async def cleanup_database() -> AsyncGenerator[None, None]:
-    """Clean up the database engine after tests to avoid unawaited connection warnings."""
-    yield
+    """Initialize database tables for testing and dispose engine afterwards."""
+    import app.agents.models  # noqa: F401
+    import app.governance.models  # noqa: F401
+    import app.tools.models  # noqa: F401
+    import app.users.models  # noqa: F401
+    from app.database.base import Base
     from app.database.session import engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield
 
     await engine.dispose()
 

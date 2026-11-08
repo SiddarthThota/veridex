@@ -4,8 +4,10 @@ from fastapi import APIRouter
 
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.governance import router as governance_router
 from app.api.v1.health import router as health_router
 from app.api.v1.organizations import router as organizations_router
+from app.api.v1.runs import router as runs_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.users import router as users_router
 
@@ -16,3 +18,5 @@ api_v1_router.include_router(users_router)
 api_v1_router.include_router(organizations_router)
 api_v1_router.include_router(agents_router, prefix="/agents", tags=["agents"])
 api_v1_router.include_router(tools_router, prefix="/tools", tags=["tools"])
+api_v1_router.include_router(runs_router, prefix="/runs", tags=["runs"])
+api_v1_router.include_router(governance_router, prefix="/governance", tags=["governance"])

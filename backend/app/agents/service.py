@@ -16,9 +16,7 @@ async def get_agent(db: AsyncSession, agent_id: uuid.UUID) -> Agent | None:
     return result.scalar_one_or_none()
 
 
-async def get_agent_by_slug(
-    db: AsyncSession, organization_id: uuid.UUID, slug: str
-) -> Agent | None:
+async def get_agent_by_slug(db: AsyncSession, organization_id: uuid.UUID, slug: str) -> Agent | None:
     stmt = select(Agent).where(Agent.organization_id == organization_id, Agent.slug == slug)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
@@ -103,21 +101,13 @@ async def change_agent_status(db: AsyncSession, agent: Agent, status: AgentStatu
 
 
 async def get_agent_versions(db: AsyncSession, agent_id: uuid.UUID) -> Sequence[AgentVersion]:
-    stmt = (
-        select(AgentVersion)
-        .where(AgentVersion.agent_id == agent_id)
-        .order_by(AgentVersion.created_at.desc())
-    )
+    stmt = select(AgentVersion).where(AgentVersion.agent_id == agent_id).order_by(AgentVersion.created_at.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
 
 
-async def get_agent_version(
-    db: AsyncSession, agent_id: uuid.UUID, version_id: uuid.UUID
-) -> AgentVersion | None:
-    stmt = select(AgentVersion).where(
-        AgentVersion.agent_id == agent_id, AgentVersion.id == version_id
-    )
+async def get_agent_version(db: AsyncSession, agent_id: uuid.UUID, version_id: uuid.UUID) -> AgentVersion | None:
+    stmt = select(AgentVersion).where(AgentVersion.agent_id == agent_id, AgentVersion.id == version_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -145,9 +135,7 @@ async def create_agent_version(
     return version
 
 
-async def publish_agent_version(
-    db: AsyncSession, version: AgentVersion, agent: Agent
-) -> AgentVersion:
+async def publish_agent_version(db: AsyncSession, version: AgentVersion, agent: Agent) -> AgentVersion:
     version.status = AgentVersionStatus.PUBLISHED
 
     # Also update the agent's main model info if needed

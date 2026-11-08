@@ -66,12 +66,8 @@ class Tool(Base, UUIDMixin, TimestampMixin):
         ForeignKey("users.id", ondelete="RESTRICT"), index=True, nullable=False
     )
 
-    status: Mapped[ToolStatus] = mapped_column(
-        Enum(ToolStatus), default=ToolStatus.DRAFT, nullable=False
-    )
-    risk_level: Mapped[ToolRiskLevel] = mapped_column(
-        Enum(ToolRiskLevel), default=ToolRiskLevel.LOW, nullable=False
-    )
+    status: Mapped[ToolStatus] = mapped_column(Enum(ToolStatus), default=ToolStatus.DRAFT, nullable=False)
+    risk_level: Mapped[ToolRiskLevel] = mapped_column(Enum(ToolRiskLevel), default=ToolRiskLevel.LOW, nullable=False)
     access_type: Mapped[ToolAccessType] = mapped_column(
         Enum(ToolAccessType), default=ToolAccessType.READ, nullable=False
     )
@@ -100,9 +96,7 @@ class Tool(Base, UUIDMixin, TimestampMixin):
 class ToolVersion(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "tool_versions"
 
-    tool_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tools.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    tool_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tools.id", ondelete="CASCADE"), index=True, nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -110,9 +104,7 @@ class ToolVersion(Base, UUIDMixin, TimestampMixin):
     output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     configuration_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[ToolVersionStatus] = mapped_column(
         Enum(ToolVersionStatus), default=ToolVersionStatus.DRAFT, nullable=False
     )
@@ -125,17 +117,11 @@ class ToolVersion(Base, UUIDMixin, TimestampMixin):
 class AgentToolPermission(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "agent_tool_permissions"
 
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    tool_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tools.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False)
+    tool_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tools.id", ondelete="CASCADE"), index=True, nullable=False)
     allowed: Mapped[bool] = mapped_column(default=True, nullable=False)
 
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
 
     agent = relationship("Agent")
     tool = relationship("Tool")

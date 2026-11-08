@@ -360,3 +360,103 @@ HTTP Request
   → Structured logging
   → Telemetry export
 ```
+
+## Governance Gateway Architecture (Phase 5)
+
+The Governance Gateway serves as the single deterministic mediation layer through which every agent tool invocation must pass before execution.
+
+```mermaid
+flowchart TD
+    Req["Agent Run Invocations (POST /runs/{id}/invocations)"] --> Eval["Governance Engine (_evaluate_policy)"]
+    
+    subgraph Precedence["Deterministic Policy Precedence"]
+        P1["1. Agent Active Check"] -->|Fail| D1["DENY: UNKNOWN_AGENT / INACTIVE_AGENT"]
+        P1 -->|Pass| P2["2. Tool Active Check"]
+        P2 -->|Fail| D2["DENY: UNKNOWN_TOOL / INACTIVE_TOOL"]
+        P2 -->|Pass| P3["3. ToolVersion Published Check"]
+        P3 -->|Fail| D3["DENY: UNPUBLISHED_TOOL_VERSION"]
+        P3 -->|Pass| P4["4. Agent-Tool Permission Check"]
+        P4 -->|Fail| D4["DENY: PERMISSION_DENIED"]
+        P4 -->|Pass| P5["5. JSON Schema Validation"]
+        P5 -->|Fail| D5["DENY: INVALID_ARGUMENTS"]
+        P5 -->|Pass| P6["6. Risk & Approval Check"]
+        P6 -->|Triggered| AP["REQUIRE_APPROVAL: APPROVAL_REQUIRED"]
+        P6 -->|Clean| AL["ALLOW"]
+    end
+    
+    Eval --> Precedence
+    
+    AL --> Exec["Tool Sandbox Executor"]
+    Exec --> Out["ToolExecution (COMPLETED / FAILED / TIMED_OUT)"]
+    
+    AP --> Q["ApprovalRequest (PENDING)"]
+    Q --> Admin["Security Analyst / Admin Decision"]
+    Admin -->|Reject| Rej["REJECTED (No Execution)"]
+    Admin -->|Approve| HashCheck{"Hash Verification & Version Check"}
+    HashCheck -->|Valid| Exec
+    HashCheck -->|Mismatch| Tamper["DENY: TAMPER_DETECTED"]
+```
+
+### Governance Data Model Relationships
+
+```mermaid
+erDiagram
+    organizations ||--o{ agent_runs : belongs_to
+    agents ||--o{ agent_runs : executes
+    agent_runs ||--o{ tool_requests : contains
+    tools ||--o{ tool_requests : targets
+    tool_versions ||--o{ tool_requests : specifies
+    tool_requests ||--o| tool_executions : produces
+    tool_requests ||--o| approval_requests : requires
+    users ||--o{ approval_requests : decided_by
+
+    agent_runs {
+        uuid id PK
+        uuid organization_id FK
+        uuid agent_id FK
+        uuid user_id FK
+        string status
+        string trace_id
+        text input_prompt
+    }
+
+    tool_requests {
+        uuid id PK
+        uuid organization_id FK
+        uuid agent_run_id FK
+        uuid tool_id FK
+        uuid tool_version_id FK
+        jsonb arguments
+        string arguments_hash
+        string decision
+        jsonb violation_codes
+        string idempotency_key
+    }
+
+    tool_executions {
+        uuid id PK
+        uuid tool_request_id FK
+        string status
+        jsonb output_payload
+        text error_message
+        float duration_ms
+    }
+
+    approval_requests {
+        uuid id PK
+        uuid organization_id FK
+        uuid tool_request_id FK
+        string status
+        string arguments_hash
+        uuid decided_by_user_id FK
+        timestamp decided_at
+        text decision_reason
+    }
+```
+
+### Execution Sandbox & Isolation Layer
+
+- **Closed Handler Registry:** Execution is dispatched strictly to pre-registered, verified handlers (`calculator`, `echo`, `system-status`, `data-lookup`).
+- **No Arbitrary Code:** Arbitrary user strings, Python `eval`/`exec`, or shell invocations are completely rejected.
+- **Timeout Isolation:** Asynchronous calls are wrapped in `asyncio.wait_for` with tool-specific timeout thresholds. If exceeded, executions are immediately terminated and persisted with status `TIMED_OUT`.
+- **Integrity Verification:** Arguments and tool version IDs are hashed with SHA-256 over canonical JSON. Approvals verify this hash prior to executing the tool, preventing state manipulation.

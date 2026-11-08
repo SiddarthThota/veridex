@@ -45,9 +45,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "data_classification",
-            sa.Enum(
-                "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", name="tooldataclassification"
-            ),
+            sa.Enum("PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", name="tooldataclassification"),
             nullable=False,
         ),
         sa.Column(

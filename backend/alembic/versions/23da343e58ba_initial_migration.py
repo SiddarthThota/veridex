@@ -24,9 +24,7 @@ def upgrade() -> None:
         "organizations",
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("slug", sa.String(length=255), nullable=False),
-        sa.Column(
-            "status", sa.Enum("ACTIVE", "INACTIVE", name="organizationstatus"), nullable=False
-        ),
+        sa.Column("status", sa.Enum("ACTIVE", "INACTIVE", name="organizationstatus"), nullable=False),
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column(
             "created_at",
@@ -52,9 +50,7 @@ def upgrade() -> None:
         sa.Column("status", sa.Enum("ACTIVE", "INACTIVE", name="userstatus"), nullable=False),  # noqa: E501
         sa.Column(
             "role",
-            sa.Enum(
-                "ADMIN", "SECURITY_ANALYST", "AUDITOR", "AGENT_OPERATOR", "VIEWER", name="role"
-            ),
+            sa.Enum("ADMIN", "SECURITY_ANALYST", "AUDITOR", "AGENT_OPERATOR", "VIEWER", name="role"),
             nullable=False,
         ),  # noqa: E501
         sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True),

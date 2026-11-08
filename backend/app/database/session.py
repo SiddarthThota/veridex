@@ -22,9 +22,7 @@ else:
     pool_kwargs["pool_size"] = settings.database_pool_size
     pool_kwargs["max_overflow"] = settings.database_max_overflow
 
-engine = create_async_engine(
-    settings.database_url, echo=settings.database_echo, pool_pre_ping=True, **pool_kwargs
-)
+engine = create_async_engine(settings.database_url, echo=settings.database_echo, pool_pre_ping=True, **pool_kwargs)
 
 async_session_factory = async_sessionmaker(
     engine,

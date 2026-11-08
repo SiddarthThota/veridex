@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.agents.models import Agent, AgentVersion  # noqa: F401
 from app.database.base import Base
+from app.governance.models import (  # noqa: F401
+    AgentRun,
+    ApprovalRequest,
+    ToolExecution,
+    ToolRequest,
+)
 from app.tools.models import AgentToolPermission, Tool, ToolVersion  # noqa: F401
 from app.users.models import Organization, User  # noqa: F401
 
