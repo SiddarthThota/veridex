@@ -142,6 +142,7 @@ class ToolRequestResponse(BaseModel):
     arguments_hash: str
     arguments: dict[str, Any]
     idempotency_key: str | None = None
+    policy_evaluations: dict[str, Any] | None = None
     created_at: datetime
     execution: ToolExecutionResponse | None = None
     approval_request: ApprovalRequestSummaryResponse | None = None
@@ -196,6 +197,7 @@ class ToolRequestInApprovalResponse(BaseModel):
     arguments_hash: str
     arguments: dict[str, Any]
     idempotency_key: str | None = None
+    policy_evaluations: dict[str, Any] | None = None
     created_at: datetime
     execution: ToolExecutionResponse | None = None
 

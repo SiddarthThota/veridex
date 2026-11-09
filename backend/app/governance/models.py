@@ -142,6 +142,7 @@ class ToolRequest(Base, UUIDMixin, TimestampMixin):
     arguments_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     violation_codes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    policy_evaluations: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     environment: Mapped[str] = mapped_column(String(50), default="DEVELOPMENT", nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)

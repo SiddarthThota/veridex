@@ -149,3 +149,115 @@ All responses follow a consistent format:
 }
 ```
 *Note: Approving automatically re-validates argument integrity hashes against the published tool version before triggering safe isolated execution.*
+
+---
+
+## Phase 6 — Policy Engine (`/api/v1/policies`)
+
+The Policy Engine provides declarative, versioned policy management with immutable published snapshots, fine-grained AST condition evaluation, and organization multi-tenancy.
+
+### Policy Management Endpoints
+
+| Method | Path | Required Role | Description |
+|--------|------|---------------|-------------|
+| POST | `/api/v1/policies` | ADMIN, SECURITY_ANALYST | Create policy container with initial draft v1 |
+| GET | `/api/v1/policies` | Authenticated (Any role) | List policies with pagination (`limit`, `offset`) and filters (`type`, `status`) |
+| GET | `/api/v1/policies/{policy_id}` | Authenticated (Any role) | Get policy details with active version and rules |
+| PUT / PATCH | `/api/v1/policies/{policy_id}` | ADMIN, SECURITY_ANALYST | Update policy container metadata and priority |
+| PATCH | `/api/v1/policies/{policy_id}/status` | ADMIN, SECURITY_ANALYST | Transition policy lifecycle state (`DRAFT` → `ACTIVE` → `INACTIVE` → `ARCHIVED`) |
+| DELETE | `/api/v1/policies/{policy_id}` | ADMIN, SECURITY_ANALYST | Archive policy container (soft-retire for audit retention) |
+
+### Versioning & Rule Management Endpoints
+
+| Method | Path | Required Role | Description |
+|--------|------|---------------|-------------|
+| POST | `/api/v1/policies/{policy_id}/versions` | ADMIN, SECURITY_ANALYST | Branch new DRAFT version, cloning rules from current version |
+| GET | `/api/v1/policies/{policy_id}/versions` | Authenticated (Any role) | List all historical versions of a policy |
+| GET | `/api/v1/policies/{policy_id}/versions/{version_id}` | Authenticated (Any role) | Inspect a specific immutable version and its rules |
+| POST | `/api/v1/policies/{policy_id}/versions/{version_id}/publish` | ADMIN, SECURITY_ANALYST | Publish draft version, retire old versions, and atomically activate |
+| POST | `/api/v1/policies/{policy_id}/versions/{version_id}/rules` | ADMIN, SECURITY_ANALYST | Add rule to DRAFT version (returns 409 Conflict if published) |
+| PUT / PATCH | `/api/v1/policies/{policy_id}/versions/{version_id}/rules/{rule_id}` | ADMIN, SECURITY_ANALYST | Update rule in DRAFT version (returns 409 Conflict if published) |
+| DELETE | `/api/v1/policies/{policy_id}/versions/{version_id}/rules/{rule_id}` | ADMIN, SECURITY_ANALYST | Delete rule from DRAFT version (returns 409 Conflict if published) |
+
+### Dry-Run Policy Simulation
+
+| Method | Path | Required Role | Description |
+|--------|------|---------------|-------------|
+| POST | `/api/v1/policies/simulate` | ADMIN, SECURITY_ANALYST, AUDITOR, AGENT_OPERATOR | Simulate policy evaluation without side effects |
+
+#### Policy Creation Request:
+```json
+{
+  "name": "Financial Transfer Limits",
+  "description": "Block unauthorized high-value transfers",
+  "policy_type": "FINANCIAL",
+  "priority": 100,
+  "default_action": "DENY"
+}
+```
+
+#### Rule Creation Request (on DRAFT version):
+```json
+{
+  "rule_name": "Limit Transfers to $10,000",
+  "description": "Deny single transactions exceeding $10,000",
+  "rule_order": 1,
+  "action": "DENY",
+  "violation_code": "AMOUNT_EXCEEDED",
+  "remediation_message": "Transfer amount must not exceed $10,000 without executive override",
+  "target_scope": {
+    "tool_ids": [],
+    "agent_environments": ["PRODUCTION"]
+  },
+  "condition_tree": {
+    "combinator": "AND",
+    "conditions": [
+      {
+        "field": "arguments.amount",
+        "operator": "GREATER_THAN",
+        "value": 10000
+      }
+    ]
+  }
+}
+```
+
+#### Simulation Request:
+```json
+{
+  "agent_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "tool_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
+  "tool_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa8",
+  "arguments": {
+    "amount": 15000
+  },
+  "environment": "PRODUCTION"
+}
+```
+
+#### Simulation Response:
+```json
+{
+  "decision": "DENY",
+  "violation_codes": ["AMOUNT_EXCEEDED"],
+  "remediation_messages": ["Transfer amount must not exceed $10,000 without executive override"],
+  "matched_policies": [
+    {
+      "policy_id": "3fa85f64-5717-4562-b3fc-2c963f66afa1",
+      "policy_slug": "financial-transfer-limits",
+      "policy_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa2",
+      "version_number": 1,
+      "matched_rules": [
+        {
+          "rule_id": "3fa85f64-5717-4562-b3fc-2c963f66afa3",
+          "rule_name": "Limit Transfers to $10,000",
+          "action": "DENY",
+          "violation_code": "AMOUNT_EXCEEDED",
+          "remediation_message": "Transfer amount must not exceed $10,000 without executive override"
+        }
+      ]
+    }
+  ],
+  "simulated_at": "2026-11-08T10:00:00Z"
+}
+```

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.agents.models import Agent, AgentVersion  # noqa: F401
+from app.common.config import get_settings
 from app.database.base import Base
 from app.governance.models import (  # noqa: F401
     AgentRun,
@@ -15,11 +16,16 @@ from app.governance.models import (  # noqa: F401
     ToolExecution,
     ToolRequest,
 )
+from app.policies.models import Policy, PolicyRule, PolicyVersion  # noqa: F401
 from app.tools.models import AgentToolPermission, Tool, ToolVersion  # noqa: F401
 from app.users.models import Organization, User  # noqa: F401
 
 # Alembic Config object
 config = context.config
+
+_settings = get_settings()
+if _settings.database_url:
+    config.set_main_option("sqlalchemy.url", _settings.database_url)
 
 # Setup logging
 if config.config_file_name is not None:

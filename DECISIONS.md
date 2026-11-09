@@ -43,3 +43,18 @@
     6. *Execution Sandboxing:* Handlers are restricted to a closed trusted registry (`calculator`, `echo`, `system-status`, `data-lookup`). Arbitrary Python, shell commands, or unvetted scripts are strictly rejected. Timeouts are enforced via `asyncio.wait_for` and failures are persisted.
     7. *Dry-Run Safety:* The `/api/v1/governance/evaluate` endpoint guarantees zero execution side effects and no database mutations.
   - **Consequences:** Provides an enterprise-grade, deterministic, and auditable security perimeter around agent execution. Eliminates execution of unvetted code while enabling controlled human oversight.
+
+## Phase 6 - Policy Engine
+- **ADR-006: Versioned Immutable Policy Engine and Multi-Tier Precedence**
+  - **Context:** While the Phase 5 Governance Gateway establishes baseline safety floor checks, enterprise deployments require dynamic, fine-grained organizational policies (e.g., spending limits, environment restrictions, restricted time windows, parameter validations). These policies must be declarative, deterministic, versioned, auditable, and impossible to bypass or compromise via ReDoS or arbitrary code execution.
+  - **Decision:**
+    1. *Immutable Policy Versioning:* Policies (`Policy`) own versioned snapshots (`PolicyVersion`) containing ordered rules (`PolicyRule`). When a version is published, its rules and definition become permanently frozen and immutable. Modifications require branching a new draft version.
+    2. *Multi-Tier Decision Precedence:*
+       - *Tier 1 (Mandatory Platform Safety Floor):* Agent status, tool registration, published tool version, agent-tool permission mapping, and JSON schema validation take absolute precedence. A Tier 2 policy rule can never override a Tier 1 failure.
+       - *Tier 2 (Active Organization Policies):* Evaluated by priority (descending) and rule order (ascending). `DENY` takes absolute precedence across rules. `REQUIRE_APPROVAL` overrides `ALLOW`. `ALLOW` requires all matching rules across active policies to grant access.
+       - *Tier 3 (Platform Fallback Baseline):* If no rules match, the policy default action and platform risk/classification baseline are applied.
+    3. *Safe AST Condition Evaluator:* Dynamic code execution (`eval`, `exec`) is completely banned. Condition trees are evaluated via a deterministic AST interpreter with strict structural limits (depth <= 5, condition count <= 20, payload <= 64KB, string length <= 1024).
+    4. *ReDoS Immunity via Google RE2:* Replaced backtracking regex evaluation with Google RE2 (`google-re2`), a linear-time DFA/NFA automata engine. Guarantees mathematical $O(n)$ time complexity in input size, rendering catastrophic backtracking impossible without thread pools, timeouts, or worker task queues.
+    5. *Auditability & Verification:* Every evaluated `ToolRequest` stores structured `policy_evaluations` JSON tracking matched policy IDs, versions, rule IDs, and violation codes.
+    6. *Simulation / Dry-Run Endpoint:* `POST /api/v1/policies/simulate` provides pre-flight dry-run evaluation without state mutations or execution.
+  - **Consequences:** Enables flexible, declarative, organization-specific policy governance while maintaining mathematical determinism, ReDoS immunity, multi-tenant isolation, and complete audit reproducibility.

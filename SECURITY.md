@@ -80,3 +80,49 @@ If you discover a security vulnerability, please report it responsibly.
 7. **Idempotency & Concurrency:**
    - `idempotency_key` enforcement on tool invocations prevents duplicate executions on retries.
    - Database transactions and state transition locks protect against race conditions.
+
+## Phase 6 Updates — Policy Engine Security Architecture
+
+1. **Immutable Policy Versioning & Freeze-on-Publish:**
+   - Policies adopt an immutable versioning model (`PolicyVersion`).
+   - When a `PolicyVersion` transitions to `PUBLISHED`, its rules and metadata are permanently frozen in the database.
+   - Any modification to rules or settings requires creating a new `DRAFT` version via explicit version branching (`POST /api/v1/policies/{id}/versions`).
+   - Published or retired versions cannot be updated or deleted, guaranteeing verifiable audit and reproducible governance evaluations.
+
+2. **Multi-Tier Decision Precedence & Inviolable Platform Baseline:**
+   - Tier 1: **Mandatory Platform Baseline Safety Floor** (Hard DENY): Agent status, tool registration, published tool version, explicit agent-tool permission, and JSON Schema argument validation are evaluated first. If any Tier 1 check fails, the invocation is immediately `DENY`ed with machine-readable violation codes. A dynamic policy rule cannot override a Tier 1 failure with `ALLOW`.
+   - Tier 2: **Active Organization Policies:** Evaluated in order of `priority` (descending). Rules within each version are evaluated in order of `rule_order` (ascending).
+     - `DENY` takes absolute precedence across all evaluated rules.
+     - `REQUIRE_APPROVAL` overrides `ALLOW`.
+     - `ALLOW` requires all matching rules across all applicable policies to permit the action, with no matching `DENY` or `REQUIRE_APPROVAL` rules.
+   - Tier 3: **Default Policy Action / Risk Baseline:** If no rules match, the policy's configured `default_action` (or Gateway risk/classification baseline) applies.
+
+3. **Safe AST Condition Evaluator (Zero Dynamic Code Execution):**
+   - Dynamic code evaluation (`eval`, `exec`, `compile`, or external shell scripts) is strictly prohibited.
+   - Rules are expressed as structured JSON condition trees parsed and evaluated by a dedicated, sandboxed AST evaluator.
+   - **Recursion & Complexity Bounds:**
+     - Maximum nesting depth: 5 levels.
+     - Maximum condition count per rule: 20 nodes.
+     - Maximum payload size evaluated: 64 KB.
+     - Maximum string comparison length: 1,024 characters.
+   - Supported deterministic operators: `EQUALS`, `NOT_EQUALS`, `GREATER_THAN`, `LESS_THAN`, `GREATER_THAN_OR_EQUAL`, `LESS_THAN_OR_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IN`, `NOT_IN`, `STARTS_WITH`, `ENDS_WITH`, `MATCHES_REGEX`.
+
+4. **ReDoS (Regular Expression Denial of Service) Immunity via Google RE2:**
+   - Evaluates regular expressions using Google RE2 (`google-re2`), a linear-time automata-based (DFA/NFA) engine.
+   - Guaranteed $O(n)$ time complexity in input string size; catastrophic backtracking is mathematically impossible.
+   - Eliminates reliance on thread pools, timeouts, worker queues, and thread cancellation, preventing worker exhaustion and unbounded task accumulation.
+   - Defense-in-depth static analysis rejects catastrophic constructs and non-linear features (backreferences) at authoring time.
+   - Patterns are capped at 128 characters and target strings at 1,024 characters.
+
+5. **Strict Multi-Tenant Isolation:**
+   - Every policy, version, rule, and simulation request is strictly scoped to the caller's authenticated `organization_id`.
+   - Cross-tenant lookups fail with HTTP 404 (preventing organization enumeration).
+   - Policy simulation endpoints are quarantined to the caller's own organizational scope and cannot simulate against or expose policies from other tenants.
+
+6. **Comprehensive Evaluation Auditability:**
+   - Every evaluated `ToolRequest` records a structured `policy_evaluations` JSON record containing:
+     - Evaluated policy IDs and slugs.
+     - Exact policy version IDs and version numbers evaluated.
+     - Matched rule IDs, actions, and violation codes.
+     - Evaluated decision and remediation messages.
+   - Audit logs and tool requests remain immutable and cannot be altered by application users.

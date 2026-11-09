@@ -34,6 +34,7 @@ async def cleanup_database() -> AsyncGenerator[None, None]:
     """Initialize database tables for testing and dispose engine afterwards."""
     import app.agents.models  # noqa: F401
     import app.governance.models  # noqa: F401
+    import app.policies.models  # noqa: F401
     import app.tools.models  # noqa: F401
     import app.users.models  # noqa: F401
     from app.database.base import Base

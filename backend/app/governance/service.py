@@ -204,14 +204,17 @@ class GovernanceService:
         tool_id: uuid.UUID,
         tool_version_id: uuid.UUID,
         arguments: dict[str, Any],
+        run_environment: str = "DEVELOPMENT",
     ) -> tuple[
         GovernanceDecision,
-        list[GovernanceViolationCode],
+        list[GovernanceViolationCode | str],
         str,
         Tool | None,
         ToolVersion | None,
     ]:
         """Internal deterministic governance evaluation implementing strict decision precedence."""
+        self._last_policy_evaluations = {}
+
         # 1. Agent Validation
         agent_query = select(Agent).where(
             Agent.id == agent_id,
@@ -317,7 +320,38 @@ class GovernanceService:
                     tool_version,
                 )
 
-        # 6. Policy & Approval Evaluation (Hard security checks passed, now evaluate approval triggers)
+        # 6. Tier 2: Policy Engine Evaluation
+        from app.policies.models import PolicyAction
+        from app.policies.service import policy_service
+
+        policy_action, policy_violations, policy_remediations, matched_traces = await policy_service.evaluate_policies(
+            db=db,
+            organization_id=organization_id,
+            agent=agent,
+            tool=tool,
+            tool_version=tool_version,
+            arguments=arguments,
+            run_environment=run_environment,
+        )
+
+        trace_data: dict[str, Any] = {
+            "matched_policies": matched_traces,
+            "tier1_checks": "PASSED",
+        }
+
+        # Precedence Rule 1: DENY always wins
+        if policy_action == PolicyAction.DENY:
+            combined_reason = "; ".join(policy_remediations) or "Denied by active organization policy"
+            self._last_policy_evaluations = {**trace_data, "decision": "DENY"}
+            return (
+                GovernanceDecision.DENY,
+                policy_violations,
+                combined_reason,
+                tool,
+                tool_version,
+            )
+
+        # 7. Tier 3: Inviolable Platform Baseline Safety Floor (Approval Triggers)
         approval_reasons: list[str] = []
 
         if tool.approval_requirement == ToolApprovalRequirement.REQUIRED:
@@ -332,17 +366,31 @@ class GovernanceService:
         if tool.data_classification == ToolDataClassification.RESTRICTED:
             approval_reasons.append("Tool operates on RESTRICTED data")
 
-        if approval_reasons:
-            combined_reason = "; ".join(approval_reasons)
+        # If Policy Engine requested approval OR Baseline Safety Floor triggered
+        if policy_action == PolicyAction.REQUIRE_APPROVAL or approval_reasons:
+            combined_violations: list[GovernanceViolationCode | str] = []
+            if approval_reasons:
+                combined_violations.append(GovernanceViolationCode.APPROVAL_REQUIRED)
+            combined_violations.extend(policy_violations)
+
+            all_reasons = approval_reasons + policy_remediations
+            combined_reason = "; ".join(all_reasons)
+
+            self._last_policy_evaluations = {
+                **trace_data,
+                "decision": "REQUIRE_APPROVAL",
+                "baseline_triggers": approval_reasons,
+            }
             return (
                 GovernanceDecision.REQUIRE_APPROVAL,
-                [GovernanceViolationCode.APPROVAL_REQUIRED],
+                combined_violations,
                 combined_reason,
                 tool,
                 tool_version,
             )
 
-        # 7. ALLOW - Every check passed cleanly
+        # 8. ALLOW - Every check passed cleanly
+        self._last_policy_evaluations = {**trace_data, "decision": "ALLOW"}
         return (
             GovernanceDecision.ALLOW,
             [],
@@ -405,7 +453,9 @@ class GovernanceService:
             tool_id=request.tool_id,
             tool_version_id=request.tool_version_id,
             arguments=request.arguments,
+            run_environment=run.environment,
         )
+        policy_trace = self._last_policy_evaluations
 
         arguments_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
 
@@ -419,8 +469,9 @@ class GovernanceService:
             arguments=request.arguments,
             arguments_hash=arguments_hash,
             decision=decision,
-            violation_codes=[code.value for code in violation_codes],
+            violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
             reason=reason,
+            policy_evaluations=policy_trace,
             environment=run.environment,
             evaluated_at=datetime.now(UTC),
             idempotency_key=request.idempotency_key,
@@ -435,7 +486,7 @@ class GovernanceService:
                 run_id=run.id,
                 tool_request_id=tool_request.id,
                 decision=decision,
-                violation_codes=[code.value for code in violation_codes],
+                violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
                 reason=reason,
                 arguments_hash=arguments_hash,
                 execution_status=None,
@@ -461,7 +512,7 @@ class GovernanceService:
                 run_id=run.id,
                 tool_request_id=tool_request.id,
                 decision=decision,
-                violation_codes=[code.value for code in violation_codes],
+                violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
                 reason=reason,
                 arguments_hash=arguments_hash,
                 execution_status=None,

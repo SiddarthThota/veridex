@@ -460,3 +460,138 @@ erDiagram
 - **No Arbitrary Code:** Arbitrary user strings, Python `eval`/`exec`, or shell invocations are completely rejected.
 - **Timeout Isolation:** Asynchronous calls are wrapped in `asyncio.wait_for` with tool-specific timeout thresholds. If exceeded, executions are immediately terminated and persisted with status `TIMED_OUT`.
 - **Integrity Verification:** Arguments and tool version IDs are hashed with SHA-256 over canonical JSON. Approvals verify this hash prior to executing the tool, preventing state manipulation.
+
+## Policy Engine Architecture (Phase 6)
+
+The Policy Engine delivers deterministic, declarative, multi-tier rule evaluation for all agent tool requests, executing between baseline platform safety checks and runtime execution.
+
+```mermaid
+flowchart TD
+    Req["ToolRequest Intent (via Gateway)"] --> T1{"Tier 1: Mandatory Safety Floor"}
+
+    subgraph Tier1["Tier 1: Platform Baseline Checks"]
+        T1 -->|Fail| D1["DENY: UNKNOWN_AGENT / INACTIVE_AGENT / UNPUBLISHED_VERSION / PERMISSION_DENIED / INVALID_ARGUMENTS"]
+    end
+
+    T1 -->|Pass| T2["Tier 2: Active Organization Policies (Priority Order)"]
+
+    subgraph Tier2["Tier 2: Declarative Policy Evaluation"]
+        T2 --> ScopeFilter["Target Scope Filtering (agent_ids, tool_ids, environments)"]
+        ScopeFilter --> AST["Sandboxed AST Condition Evaluator"]
+        AST --> RuleRes{"Rule Evaluation"}
+        RuleRes -->|DENY Rule Match| DenyDec["DENY (Absolute Precedence)"]
+        RuleRes -->|REQUIRE_APPROVAL Match| ApprDec["REQUIRE_APPROVAL"]
+        RuleRes -->|ALLOW Match & No Deny/Approval| AllowDec["ALLOW"]
+    end
+
+    Tier2 -->|No Rules Matched| T3["Tier 3: Fallback Precedence"]
+
+    subgraph Tier3["Tier 3: Platform Fallback Baseline"]
+        T3 --> DefAction{"Policy Default Action / Risk Baseline"}
+        DefAction -->|Risk / Classification / Irreversible| ApprFallback["REQUIRE_APPROVAL"]
+        DefAction -->|Safe / Read| AllowFallback["ALLOW"]
+    end
+
+    DenyDec --> AuditLog["Audit: ToolRequest (policy_evaluations JSON)"]
+    ApprDec --> AuditLog
+    AllowDec --> AuditLog
+    ApprFallback --> AuditLog
+    AllowFallback --> AuditLog
+```
+
+### Policy Engine Domain Model
+
+```mermaid
+erDiagram
+    organizations ||--o{ policies : owns
+    policies ||--o{ policy_versions : versions
+    policies ||--o| policy_versions : current_version
+    policy_versions ||--o{ policy_rules : contains
+    tool_requests }o--o{ policy_versions : evaluated_with
+
+    policies {
+        uuid id PK
+        uuid organization_id FK
+        string name
+        string slug
+        string policy_type
+        string status
+        int priority
+        string default_action
+        uuid current_version_id FK
+    }
+
+    policy_versions {
+        uuid id PK
+        uuid organization_id FK
+        uuid policy_id FK
+        int version_number
+        string status
+        string description
+        string change_summary
+        uuid created_by FK
+        timestamp published_at
+    }
+
+    policy_rules {
+        uuid id PK
+        uuid policy_version_id FK
+        string rule_name
+        text description
+        int rule_order
+        string action
+        string violation_code
+        text remediation_message
+        jsonb target_scope
+        jsonb condition_tree
+    }
+
+    tool_requests {
+        uuid id PK
+        uuid organization_id FK
+        uuid tool_id FK
+        uuid tool_version_id FK
+        jsonb arguments
+        string decision
+        jsonb violation_codes
+        jsonb policy_evaluations
+    }
+```
+
+### Policy & Version Lifecycle State Machines
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> DRAFT : Create Policy
+    DRAFT --> ACTIVE : Publish Version 1
+    ACTIVE --> INACTIVE : Deactivate
+    INACTIVE --> ACTIVE : Reactivate
+    INACTIVE --> ARCHIVED : Archive
+    ACTIVE --> ARCHIVED : Archive
+    ARCHIVED --> [*] : Immutable / Terminal
+```
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> DRAFT_V : Create Draft Version
+    DRAFT_V --> PUBLISHED_V : Publish (Validates AST & Rules)
+    PUBLISHED_V --> RETIRED_V : Superseded by New Version
+    RETIRED_V --> [*] : Immutable / Historical
+```
+
+### AST Condition Evaluator Specification
+
+- **Sandboxing:** Dynamic execution functions (`eval`, `exec`, `compile`, `getattr`) are prohibited.
+- **Traversal:** Dotted path resolution (`arguments.amount`, `agent.environment`, `tool.name`, `context.risk_level`).
+- **Complexity Envelopes:**
+  - Max AST tree depth: 5
+  - Max condition clauses: 20
+  - Max payload size: 64 KB
+  - Max string comparison length: 1,024 characters
+- **ReDoS Immunity (Google RE2):**
+  - Linear-time automata engine (`google-re2`) guaranteeing mathematical $O(n)$ time complexity in input length.
+  - Catastrophic backtracking is fundamentally eliminated without relying on worker threads, timeouts, or task queues.
+  - Regex pattern length capped at 128 characters, target input string capped at 1,024 characters.
+  - Static authoring-time rejection of nested quantifiers, quantified alternations, and non-linear backreferences.

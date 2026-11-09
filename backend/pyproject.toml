@@ -31,6 +31,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.27.0,<2.0",
     "openai>=1.50.0,<2.0",
     "jsonschema>=4.23.0",
+    "google-re2>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -84,8 +85,11 @@ disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["jose.*", "passlib.*", "jsonschema.*"]
+module = ["jose.*", "passlib.*", "jsonschema.*", "re2.*"]
 ignore_missing_imports = true
+
+[tool.uv]
+link-mode = "copy"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
