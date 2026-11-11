@@ -42,7 +42,6 @@ All responses follow a consistent format:
   "message": "string (optional)"
 }
 ```
-
 ## Error Format
 
 ```json
@@ -50,7 +49,6 @@ All responses follow a consistent format:
   "detail": "Error description"
 }
 ```
-
 ## Phase 2 Updates
 - POST /api/v1/auth/login: Accepts OAuth2 form data to return JWT.
 - GET /api/v1/users/me: Returns current authenticated user.
@@ -92,7 +90,6 @@ All responses follow a consistent format:
   "idempotency_key": "inv-001"
 }
 ```
-
 #### Tool Invocation Response:
 ```json
 {
@@ -109,7 +106,6 @@ All responses follow a consistent format:
   "approval_request_id": null
 }
 ```
-
 ### Governance & Approvals (`/api/v1/governance`)
 
 | Method | Path | Required Role | Description |
@@ -130,7 +126,6 @@ All responses follow a consistent format:
   }
 }
 ```
-
 #### Governance Dry-Run Evaluation Response:
 ```json
 {
@@ -140,7 +135,6 @@ All responses follow a consistent format:
   "message": "Evaluation decision: REQUIRE_APPROVAL"
 }
 ```
-
 #### Approval Decision Request:
 ```json
 {
@@ -195,7 +189,6 @@ The Policy Engine provides declarative, versioned policy management with immutab
   "default_action": "DENY"
 }
 ```
-
 #### Rule Creation Request (on DRAFT version):
 ```json
 {
@@ -221,7 +214,6 @@ The Policy Engine provides declarative, versioned policy management with immutab
   }
 }
 ```
-
 #### Simulation Request:
 ```json
 {
@@ -234,7 +226,6 @@ The Policy Engine provides declarative, versioned policy management with immutab
   "environment": "PRODUCTION"
 }
 ```
-
 #### Simulation Response:
 ```json
 {
@@ -259,5 +250,153 @@ The Policy Engine provides declarative, versioned policy management with immutab
     }
   ],
   "simulated_at": "2026-11-08T10:00:00Z"
+}
+```
+## Phase 7 Updates — Risk Engine REST APIs (`/api/v1/risk`)
+
+The Risk Engine provides endpoints for dry-run simulation, historical assessment auditing, dynamic agent risk profile review, and organization-level risk configuration management.
+
+### Endpoints Overview
+
+| Method | Path | Allowed Roles | Description | Mutation Behavior |
+|--------|------|---------------|-------------|-------------------|
+| `POST` | `/api/v1/risk/evaluate` | `ADMIN`, `SECURITY_ANALYST`, `AGENT_OPERATOR`, `AUDITOR` | Non-mutating risk simulation using server-side metadata | **Pure read-only**: Zero records created |
+| `GET` | `/api/v1/risk/assessments` | `ADMIN`, `SECURITY_ANALYST`, `AGENT_OPERATOR`, `AUDITOR` | Paginated listing of historical assessments with filters | Read-only |
+| `GET` | `/api/v1/risk/assessments/{id}` | `ADMIN`, `SECURITY_ANALYST`, `AGENT_OPERATOR`, `AUDITOR` | Retrieve individual historical risk assessment | Read-only |
+| `GET` | `/api/v1/risk/profiles/agents/{agent_id}` | `ADMIN`, `SECURITY_ANALYST`, `AGENT_OPERATOR`, `AUDITOR` | Retrieve empirical risk profile & 7-day violation metrics | Read-only |
+| `GET` | `/api/v1/risk/config` | `ADMIN`, `SECURITY_ANALYST`, `AGENT_OPERATOR`, `AUDITOR` | Retrieve active organization risk configuration & version | Idempotent read / auto-initializes default v1 |
+| `POST` | `/api/v1/risk/config/versions` | `ADMIN`, `SECURITY_ANALYST` only | Publish new immutable configuration version | **Mutating**: Appends version, locks row |
+
+---
+
+### 1. Risk Evaluation Simulation (`POST /api/v1/risk/evaluate`)
+
+Performs an isolated dry-run calculation without executing tools or writing records to the database.
+
+#### Request Payload:
+```json
+{
+  "agent_id": "3fa85f64-5717-4562-b3fc-2c963f66afa1",
+  "tool_id": "3fa85f64-5717-4562-b3fc-2c963f66afa2",
+  "tool_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa3",
+  "arguments": {
+    "account_id": "ACC-999",
+    "amount": 500000.0,
+    "command": "rm -rf /"
+  },
+  "environment": "PRODUCTION"
+}
+```
+#### Response (HTTP 200 OK):
+```json
+{
+  "risk_score": 85,
+  "risk_level": "CRITICAL",
+  "subscores": {
+    "tool": 85.0,
+    "data": 100.0,
+    "agent": 50.0,
+    "context": 90.0
+  },
+  "factor_breakdown": {
+    "weights": {
+      "tool": 0.35,
+      "data": 0.25,
+      "agent": 0.20,
+      "context": 0.20
+    },
+    "subscores": {
+      "tool": 85.0,
+      "data": 100.0,
+      "agent": 50.0,
+      "context": 90.0
+    },
+    "contributions": {
+      "tool": 29.75,
+      "data": 25.0,
+      "agent": 10.0,
+      "context": 18.0
+    },
+    "raw_score": 82.75,
+    "composite_score": 83,
+    "risk_level": "CRITICAL"
+  },
+  "heuristics_matched": [
+    {
+      "rule_id": "HIGH_FINANCIAL_VALUE",
+      "path": "amount",
+      "severity": "HIGH",
+      "score_contribution": 40.0
+    }
+  ],
+  "explanation": "Calculated composite risk score: 83 (CRITICAL). Tool risk: 85.0, Data risk: 100.0, Agent risk: 50.0, Context risk: 90.0. Agent history has insufficient sample (0/5 required); conservative baseline applied. Heuristics triggered: [HIGH_FINANCIAL_VALUE].",
+  "scoring_algorithm_version": "1.0.0",
+  "config_version_id": "3fa85f64-5717-4562-b3fc-2c963f66afa4",
+  "simulated_at": "2026-11-09T12:00:00Z"
+}
+```
+---
+
+### 2. List Historical Assessments (`GET /api/v1/risk/assessments`)
+
+Supports filtering by `agent_id`, `tool_id`, `risk_level`, `start_date`, and `end_date` with `limit` (1..100) and `offset` pagination.
+
+#### Query Parameters:
+- `agent_id`: UUID (optional)
+- `tool_id`: UUID (optional)
+- `risk_level`: `LOW` | `MEDIUM` | `HIGH` | `CRITICAL` (optional)
+- `start_date`: ISO 8601 DateTime (optional)
+- `end_date`: ISO 8601 DateTime (optional)
+- `limit`: int (default: 50, min: 1, max: 100)
+- `offset`: int (default: 0, min: 0)
+
+---
+
+### 3. Retrieve Historical Assessment (`GET /api/v1/risk/assessments/{id}`)
+
+Returns the full immutable snapshot of a specific historical risk assessment, including bidirectional `tool_request_id`, algorithm version, 4 subscores, factor breakdown, and heuristics triggered.
+
+---
+
+### 4. Agent Risk Profile (`GET /api/v1/risk/profiles/agents/{agent_id}`)
+
+Retrieves the empirical risk and trust profile for an agent based on its 7-day sliding window invocation history.
+
+#### Response:
+```json
+{
+  "agent_id": "3fa85f64-5717-4562-b3fc-2c963f66afa1",
+  "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa0",
+  "risk_tier": "HIGH",
+  "history_status": "INSUFFICIENT_DATA",
+  "total_eligible_invocations": 3,
+  "total_violations": 1,
+  "violation_rate": 0.0,
+  "calculated_trust_score": 100.0,
+  "observation_window_days": 7,
+  "last_assessed_at": "2026-11-09T14:30:00Z"
+}
+```
+---
+
+### 5. Risk Configuration (`GET /api/v1/risk/config` & `POST /api/v1/risk/config/versions`)
+
+- `GET /api/v1/risk/config`: Returns the active configuration and its current published version.
+- `POST /api/v1/risk/config/versions`: Publishes a new immutable version. Requires `ADMIN` or `SECURITY_ANALYST`.
+
+#### Publish Version Request Payload:
+```json
+{
+  "weight_tool": 0.35,
+  "weight_data": 0.25,
+  "weight_agent": 0.20,
+  "weight_context": 0.20,
+  "threshold_medium": 30,
+  "threshold_high": 60,
+  "threshold_critical": 85,
+  "approval_threshold": 60,
+  "deny_threshold": 90,
+  "heuristic_rules": [],
+  "changelog": "Standard production risk profile"
 }
 ```

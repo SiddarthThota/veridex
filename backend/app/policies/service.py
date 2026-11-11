@@ -540,6 +540,7 @@ class PolicyService:
         tool_version: ToolVersion,
         arguments: dict[str, Any],
         run_environment: str = "DEVELOPMENT",
+        additional_context: dict[str, Any] | None = None,
     ) -> tuple[
         PolicyAction,
         list[str],
@@ -575,6 +576,7 @@ class PolicyService:
             tool=tool,
             tool_version=tool_version,
             run_environment=run_environment,
+            additional_context=additional_context,
         )
 
         matched_policies_trace: list[dict[str, Any]] = []

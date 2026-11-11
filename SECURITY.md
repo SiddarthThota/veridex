@@ -126,3 +126,41 @@ If you discover a security vulnerability, please report it responsibly.
      - Matched rule IDs, actions, and violation codes.
      - Evaluated decision and remediation messages.
    - Audit logs and tool requests remain immutable and cannot be altered by application users.
+
+## Phase 7 Updates — Risk Engine Security Architecture
+
+1. **Four-Vector Quantitative Risk Scoring:**
+   - Every tool invocation intent is quantitatively assessed across four independent risk vectors:
+     - **Tool Blast Radius ($S_{\text{tool}}$, weight 0.35):** Evaluates intrinsic tool risk tier (`LOW`: 0, `MEDIUM`: 25, `HIGH`: 60, `CRITICAL`: 100), access type (`READ`: 0, `WRITE`: 50), and reversibility (`REVERSIBLE`: 0, `IRREVERSIBLE`: 100).
+     - **Data Sensitivity & Impact ($S_{\text{data}}$, weight 0.25):** Evaluates data classification (`PUBLIC`: 0, `INTERNAL`: 25, `CONFIDENTIAL`: 60, `RESTRICTED`: 100) and approval requirement (`NOT_REQUIRED`: 0, `OPTIONAL`: 50, `REQUIRED`: 100).
+     - **Empirical Agent Trust & Violation History ($S_{\text{agent}}$, weight 0.20):** Combines configured agent risk tier with a 7-day sliding window of eligible invocations ($N \le 50$). When sample size is small ($N < 5$), the status is classified as `INSUFFICIENT_DATA`, defaulting to a conservative baseline trust score of 100.0 (0.0 violation rate) to avoid ungrounded penalties.
+     - **Runtime Context Risk ($S_{\text{context}}$, weight 0.20):** Evaluates deployment environment (`DEVELOPMENT`: 0, `STAGING`: 25, `PRODUCTION`: 60) plus declarative and built-in argument heuristic rules (detecting destructive commands, SQL injections, privilege escalation, and high financial transaction values), clamped to $[0, 100]$.
+   - The composite risk score is computed as:
+     $$S_{\text{composite}} = \text{round}(w_{\text{tool}} S_{\text{tool}} + w_{\text{data}} S_{\text{data}} + w_{\text{agent}} S_{\text{agent}} + w_{\text{context}} S_{\text{context}})$$
+     clamped strictly to $[0, 100]$ and classified into discrete bands: `LOW` (0–29), `MEDIUM` (30–59), `HIGH` (60–84), `CRITICAL` (85–100).
+
+2. **5-Stage Precedence Pipeline & Policy Coordination:**
+   - The Gateway coordinates platform floor, risk scoring, and policy evaluation in strict sequential order:
+     - **Stage 1 (Mandatory Platform Safety Floor):** Identity, tenant ownership, active agent/tool status, tool version publication, agent permission mapping, and JSON Schema argument validation take absolute precedence. Any failure immediately triggers hard `DENY`.
+     - **Stage 2 (Risk Denial Pre-Check):** If composite score $\ge \text{deny\_threshold}$ (default 90), the request is immediately denied with `CRITICAL_RISK_THRESHOLD_EXCEEDED` before any policy rules execute.
+     - **Stage 3 (Declarative Policy Engine Evaluation):** Policy rules execute with trusted server-side `context.risk_score` and `context.risk_level`. Policy `DENY` is absolute. Policy `ALLOW` can **never** override Stage 2 risk denial or Stage 1 safety floor failures.
+     - **Stage 4 (Approval Synthesis):** If composite score $\ge \text{approval\_threshold}$ (default 60) or platform baseline requires human sign-off, `REQUIRE_APPROVAL` is synthesized. Policy `ALLOW` cannot bypass this baseline.
+     - **Stage 5 (Clean ALLOW):** Granted only when all checks, risk thresholds, and policy rules permit execution.
+
+3. **Anti-Spoofing & Server-Side Trust Boundaries:**
+   - All evaluation metadata (agent risk tier, tool classifications, historical violation counts, active organization configuration) is resolved exclusively from trusted server-side database records.
+   - Client-supplied risk scores, trust levels, or bypass flags in headers or request payloads are strictly ignored.
+
+4. **Fail-Closed Guarantees:**
+   - If risk scoring encounters an unexpected exception, missing configuration, or persistence failure when saving the `RiskAssessment`, the active transaction is immediately rolled back and the invocation fails closed with a recorded `DENY` (`RISK_EVALUATION_FAILED`). Unvetted executions are mathematically prevented.
+
+5. **Immutable Risk Configuration Versioning & Concurrency Protection:**
+   - Tenant risk parameters (vector weights, classification cutoffs, approval/deny thresholds) are managed via immutable versions (`RiskConfigurationVersion`).
+   - Publishing a new version is restricted to `ADMIN` and `SECURITY_ANALYST` roles and uses pessimistic row locking (`SELECT ... FOR UPDATE`) on the parent `RiskConfiguration` to prevent race conditions during concurrent administrative publishing.
+   - Weights must sum to $1.00 \pm 0.001$, threshold monotonicity is enforced ($0 \le \text{low} < \text{med} < \text{hi} \le 100$), and action threshold alignment ($\text{approval\_threshold} \le \text{deny\_threshold}$) is mandatory.
+
+6. **Infrastructure Failure Exclusions in Agent Profiles:**
+   - External tool execution timeouts (`TIMED_OUT`) and handler exceptions (`FAILED`) are categorized as infrastructure failures and are excluded from the agent's eligible invocation sample. This ensures agents are not unfairly penalized with higher violation rates when third-party services fail.
+
+7. **Pure Non-Mutating Simulation:**
+   - `POST /api/v1/risk/evaluate` provides simulation capability for security analysts and operators. It computes complete risk telemetry, subscores, factor breakdowns, and heuristic matches using server-side metadata, while guaranteeing zero database mutations (no `ToolRequest` or `RiskAssessment` records created, no agent profile updates).

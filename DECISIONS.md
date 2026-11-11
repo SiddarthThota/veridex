@@ -58,3 +58,31 @@
     5. *Auditability & Verification:* Every evaluated `ToolRequest` stores structured `policy_evaluations` JSON tracking matched policy IDs, versions, rule IDs, and violation codes.
     6. *Simulation / Dry-Run Endpoint:* `POST /api/v1/policies/simulate` provides pre-flight dry-run evaluation without state mutations or execution.
   - **Consequences:** Enables flexible, declarative, organization-specific policy governance while maintaining mathematical determinism, ReDoS immunity, multi-tenant isolation, and complete audit reproducibility.
+
+## Phase 7 - Risk Engine & Dynamic Context Assessment
+- **ADR-007: Four-Vector Deterministic Risk Scoring & 5-Stage Precedence Pipeline**
+  - **Context:** While Phase 5 established baseline floor checks and Phase 6 enabled declarative AST policy rules, enterprise agent deployments require holistic quantitative risk scoring. Agent actions vary dynamically based on tool blast radius, sensitive data classification, agent history/trustworthiness, runtime context, and malicious argument patterns. This risk scoring must be deterministic, mathematically normalized, auditable, and seamlessly integrated into the Governance Gateway decision pipeline without client trust.
+  - **Decision:**
+    1. *Four-Vector Scoring Engine:*
+       - **Tool Risk ($S_{\text{tool}}$, weight 0.35):** Base risk tier (LOW: 0, MEDIUM: 25, HIGH: 60, CRITICAL: 100), access type (READ: 0, WRITE: 50), reversibility (REVERSIBLE: 0, IRREVERSIBLE: 100).
+       - **Data Risk ($S_{\text{data}}$, weight 0.25):** Data classification (PUBLIC: 0, INTERNAL: 25, CONFIDENTIAL: 60, RESTRICTED: 100), approval requirement (NOT_REQUIRED: 0, OPTIONAL: 50, REQUIRED: 100).
+       - **Agent Risk ($S_{\text{agent}}$, weight 0.20):** Base risk tier (LOW: 0, MEDIUM: 25, HIGH: 60, CRITICAL: 100) combined with an empirical 7-day sliding-window violation rate ($N \le 50$). When $N < 5$, `INSUFFICIENT_DATA` conservative baseline (100 trust) applies.
+       - **Runtime Context Risk ($S_{\text{context}}$, weight 0.20):** Environment (DEVELOPMENT: 0, STAGING: 25, PRODUCTION: 60) plus declarative and built-in argument heuristics (e.g., destructive command patterns, SQL injections, excessive limits, high financial values), clamped to [0, 100].
+    2. *5-Stage Gateway Decision Precedence Pipeline:*
+       - **Stage 1 (Mandatory Platform Safety Floor):** Evaluates agent status, tool registration, published tool version, explicit permission, and JSON Schema argument validation. Any failure returns immediate hard `DENY`.
+       - **Stage 2 (Risk Denial Pre-Check):** If $S_{\text{composite}} \ge \text{deny\_threshold}$ (default 90), returns immediate `DENY` with `CRITICAL_RISK_THRESHOLD_EXCEEDED` before policy rules run.
+       - **Stage 3 (Declarative Policy Engine Evaluation):** Evaluates organization policies enriched with trusted server-side `context.risk_score` and `context.risk_level`. Policy `DENY` is absolute. Policy `ALLOW` can **never** override a Stage 2 risk DENY or platform safety failure.
+       - **Stage 4 (Approval Synthesis):** If $S_{\text{composite}} \ge \text{approval\_threshold}$ (default 60), synthesizes `REQUIRE_APPROVAL`. Platform baseline approval safety triggers cannot be overridden by policy `ALLOW`.
+       - **Stage 5 (Clean ALLOW):** Granted only when all baseline checks, risk thresholds, and policy rules permit execution.
+    3. *Immutable Risk Configuration Versioning:*
+       - Multi-tenant risk configurations (`RiskConfiguration`) own immutable version snapshots (`RiskConfigurationVersion`).
+       - Publishing requires `ADMIN` or `SECURITY_ANALYST` role and enforces transactional row locking (`with_for_update()`) to prevent race conditions.
+       - Rigorous mathematical validation: weights sum to $1.00 \pm 0.001$, monotonicity of risk level thresholds, and action threshold alignment ($\text{approval\_threshold} \le \text{deny\_threshold}$).
+    4. *Bidirectional Risk Assessment Persistence & Reproducibility:*
+       - Every live evaluation persists an immutable `RiskAssessment` record bidirectionally linked with `ToolRequest`.
+       - Stores full configuration snapshot, scoring algorithm version, 4 subscores, factor breakdown, heuristic matches, and human-readable explanation.
+    5. *Dry-Run Simulation Safety:*
+       - `POST /api/v1/risk/evaluate` resolves server-side metadata and computes comprehensive risk telemetry without creating or mutating any database records.
+    6. *Fail-Closed Architecture:*
+       - Any exception during risk scoring or assessment persistence causes the transaction to roll back and emit a fail-closed `DENY` (`RISK_EVALUATION_FAILED`), ensuring unvetted actions are never executed.
+  - **Consequences:** Delivers a mathematically deterministic, transparent, and auditable risk scoring engine that seamlessly coordinates with declarative policies while upholding zero-trust guarantees and strict tenant isolation.

@@ -9,7 +9,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -24,6 +24,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.risk.models import RiskAssessment
 
 
 class RunStatus(enum.StrEnum):
@@ -56,6 +59,8 @@ class GovernanceViolationCode(enum.StrEnum):
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
     ARGUMENTS_HASH_MISMATCH = "ARGUMENTS_HASH_MISMATCH"
     DUPLICATE_APPROVAL_PROCESSING = "DUPLICATE_APPROVAL_PROCESSING"
+    CRITICAL_RISK_THRESHOLD_EXCEEDED = "CRITICAL_RISK_THRESHOLD_EXCEEDED"
+    RISK_EVALUATION_FAILED = "RISK_EVALUATION_FAILED"
 
 
 class ExecutionStatus(enum.StrEnum):
@@ -143,6 +148,16 @@ class ToolRequest(Base, UUIDMixin, TimestampMixin):
     violation_codes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     policy_evaluations: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    risk_assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "risk_assessments.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_tool_requests_risk_assessment_id",
+        ),
+        index=True,
+        nullable=True,
+    )
     environment: Mapped[str] = mapped_column(String(50), default="DEVELOPMENT", nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
@@ -152,6 +167,11 @@ class ToolRequest(Base, UUIDMixin, TimestampMixin):
     agent = relationship("Agent")
     tool = relationship("Tool")
     tool_version = relationship("ToolVersion")
+    risk_assessment: Mapped["RiskAssessment | None"] = relationship(
+        "RiskAssessment",
+        foreign_keys=[risk_assessment_id],
+        post_update=True,
+    )
     execution: Mapped["ToolExecution | None"] = relationship(
         "ToolExecution", back_populates="tool_request", uselist=False, cascade="all, delete-orphan"
     )

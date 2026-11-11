@@ -595,3 +595,145 @@ stateDiagram-v2
   - Catastrophic backtracking is fundamentally eliminated without relying on worker threads, timeouts, or task queues.
   - Regex pattern length capped at 128 characters, target input string capped at 1,024 characters.
   - Static authoring-time rejection of nested quantifiers, quantified alternations, and non-linear backreferences.
+
+---
+
+## Phase 7 — Risk Engine & 5-Stage Precedence Architecture
+
+The Risk Engine provides deterministic quantitative risk scoring, empirical agent trust tracking, dynamic argument heuristic inspection, and immutable versioned risk configurations.
+
+### 5-Stage Decision Precedence Pipeline
+
+```mermaid
+flowchart TD
+    Start(["Tool Invocation Request"]) --> Stage1{"Stage 1: Platform Floor<br/>(Agent/Tool Active, Version Published,<br/>Permission Granted, Schema Valid)"}
+    Stage1 -- "Failure" --> Deny1["Hard DENY<br/>(UNKNOWN_AGENT, INACTIVE_TOOL,<br/>PERMISSION_DENIED, SCHEMA_FAIL)"]
+    Stage1 -- "Pass" --> RiskEval["Risk Evaluation<br/>(Compute S_tool, S_data, S_agent, S_context<br/>Composite Score S in [0, 100])"]
+
+    RiskEval --> Stage2{"Stage 2: Risk Denial Pre-Check<br/>Score S >= deny_threshold (90)?"}
+    Stage2 -- "Yes" --> Deny2["Stage 2 DENY<br/>(CRITICAL_RISK_THRESHOLD_EXCEEDED)"]
+
+    Stage2 -- "No" --> Stage3["Stage 3: Policy Engine Evaluation<br/>(Enriched with context.risk_score & context.risk_level)"]
+    Stage3 --> PolicyRuleCheck{"Policy Decision?"}
+    PolicyRuleCheck -- "DENY" --> Deny3["Policy DENY (Absolute Precedence)"]
+    PolicyRuleCheck -- "REQUIRE_APPROVAL" --> ApprovalReq["REQUIRE_APPROVAL Synthesized"]
+    PolicyRuleCheck -- "ALLOW / Default" --> Stage4{"Stage 4: Approval Synthesis<br/>Score S >= approval_threshold (60)<br/>or Tool requires approval?"}
+
+    Stage4 -- "Yes" --> ApprovalReq
+    Stage4 -- "No" --> CleanAllow["Stage 5: Clean ALLOW<br/>Execute Tool in Sandboxed Executor"]
+
+    Deny1 --> Record["Persist ToolRequest & RiskAssessment (Fail-Closed Rollback on error)"]
+    Deny2 --> Record
+    Deny3 --> Record
+    ApprovalReq --> Record
+    CleanAllow --> Record
+```
+
+### Risk Engine Domain Model (ERD)
+
+```mermaid
+erDiagram
+    organizations ||--o{ risk_configurations : owns
+    risk_configurations ||--|{ risk_configuration_versions : contains
+    risk_configurations ||--o| risk_configuration_versions : current_version_id
+    organizations ||--o{ agent_risk_profiles : tracks
+    agents ||--o| agent_risk_profiles : has
+    organizations ||--o{ risk_assessments : logs
+    agents ||--o{ risk_assessments : assessed_for
+    tools ||--o{ risk_assessments : assessed_with
+    tool_versions ||--o{ risk_assessments : binds_to
+    tool_requests ||--o| risk_assessments : bidirectional_link
+
+    risk_configurations {
+        uuid id PK
+        uuid organization_id FK
+        uuid current_version_id FK
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    risk_configuration_versions {
+        uuid id PK
+        uuid risk_configuration_id FK
+        integer version_number
+        float weight_tool
+        float weight_data
+        float weight_agent
+        float weight_context
+        integer threshold_medium
+        integer threshold_high
+        integer threshold_critical
+        integer approval_threshold
+        integer deny_threshold
+        json heuristic_rules
+        string scoring_algorithm_version
+        string changelog
+        uuid created_by_user_id FK
+    }
+
+    agent_risk_profiles {
+        uuid id PK
+        uuid organization_id FK
+        uuid agent_id FK
+        float calculated_trust_score
+        integer total_eligible_invocations
+        integer total_violations
+        float violation_rate
+        string history_status
+        integer observation_window_days
+        timestamp last_assessed_at
+    }
+
+    risk_assessments {
+        uuid id PK
+        uuid organization_id FK
+        uuid tool_request_id FK
+        uuid agent_id FK
+        uuid tool_id FK
+        uuid tool_version_id FK
+        uuid config_version_id FK
+        string scoring_algorithm_version
+        integer risk_score
+        string risk_level
+        float subscore_tool
+        float subscore_data
+        float subscore_agent
+        float subscore_context
+        json factor_breakdown
+        json heuristics_matched
+        json config_snapshot
+        text explanation
+        timestamp assessed_at
+    }
+```
+
+### Four-Vector Quantitative Scoring Specification
+
+1. **Tool Blast Radius Subscore ($S_{\text{tool}}$):**
+   $$S_{\text{tool}} = 0.40 \cdot \text{tier\_pts} + 0.30 \cdot \text{access\_pts} + 0.30 \cdot \text{reversibility\_pts}$$
+   - Risk Tier: `LOW`: 0.0, `MEDIUM`: 25.0, `HIGH`: 60.0, `CRITICAL`: 100.0.
+   - Access Type: `READ`: 0.0, `WRITE`: 50.0.
+   - Reversibility: `REVERSIBLE`: 0.0, `IRREVERSIBLE`: 100.0.
+
+2. **Data Classification & Impact Subscore ($S_{\text{data}}$):**
+   $$S_{\text{data}} = 0.70 \cdot \text{classification\_pts} + 0.30 \cdot \text{approval\_pts}$$
+   - Data Classification: `PUBLIC`: 0.0, `INTERNAL`: 25.0, `CONFIDENTIAL`: 60.0, `RESTRICTED`: 100.0.
+   - Approval Requirement: `NOT_REQUIRED`: 0.0, `OPTIONAL`: 50.0, `REQUIRED`: 100.0.
+
+3. **Agent Trust & Violation History Subscore ($S_{\text{agent}}$):**
+   $$S_{\text{agent}} = \min(100.0, \text{tier\_pts} + \text{violation\_penalty})$$
+   - Risk Tier: `LOW`: 0.0, `MEDIUM`: 25.0, `HIGH`: 60.0, `CRITICAL`: 100.0.
+   - 7-day observation window, up to 50 samples.
+   - When sample size $N < 5$: status is `INSUFFICIENT_DATA`, violation rate defaults to 0.0, and conservative baseline trust score (100.0) is applied.
+   - When $N \ge 5$: status is `VALID`, $\text{violation\_rate} = \text{violations} / N$, and violation penalty applies linearly.
+
+4. **Runtime Context Risk Subscore ($S_{\text{context}}$):**
+   $$S_{\text{context}} = \min(100.0, \text{env\_pts} + \sum \text{heuristic\_pts})$$
+   - Environment: `DEVELOPMENT`: 0.0, `STAGING`: 25.0, `PRODUCTION`: 60.0.
+   - Argument Heuristics: Pattern matches for destructive commands (`rm -rf`, `DROP TABLE`), SQL injections, wildcard scopes (`*`), and large financial thresholds.
+
+5. **Composite Score & Classification:**
+   $$S_{\text{composite}} = \text{round}(w_{\text{tool}} S_{\text{tool}} + w_{\text{data}} S_{\text{data}} + w_{\text{agent}} S_{\text{agent}} + w_{\text{context}} S_{\text{context}})$$
+   - Classification: `LOW` (0–29), `MEDIUM` (30–59), `HIGH` (60–84), `CRITICAL` (85–100).
+   - Enforces default thresholds: `approval_threshold = 60`, `deny_threshold = 90`.

@@ -8,6 +8,7 @@ from app.api.v1.governance import router as governance_router
 from app.api.v1.health import router as health_router
 from app.api.v1.organizations import router as organizations_router
 from app.api.v1.policies import router as policies_router
+from app.api.v1.risk import router as risk_router
 from app.api.v1.runs import router as runs_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.users import router as users_router
@@ -22,3 +23,4 @@ api_v1_router.include_router(tools_router, prefix="/tools", tags=["tools"])
 api_v1_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_v1_router.include_router(governance_router, prefix="/governance", tags=["governance"])
 api_v1_router.include_router(policies_router)
+api_v1_router.include_router(risk_router)

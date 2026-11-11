@@ -17,6 +17,12 @@ from app.governance.models import (  # noqa: F401
     ToolRequest,
 )
 from app.policies.models import Policy, PolicyRule, PolicyVersion  # noqa: F401
+from app.risk.models import (  # noqa: F401
+    AgentRiskProfile,
+    RiskAssessment,
+    RiskConfiguration,
+    RiskConfigurationVersion,
+)
 from app.tools.models import AgentToolPermission, Tool, ToolVersion  # noqa: F401
 from app.users.models import Organization, User  # noqa: F401
 

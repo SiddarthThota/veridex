@@ -38,6 +38,17 @@ from app.governance.schemas import (
     ToolInvocationRequest,
     ToolInvocationResponse,
 )
+from app.risk.models import (
+    RiskAssessment,
+    RiskConfiguration,
+    RiskConfigurationVersion,
+)
+from app.risk.schemas import RiskEvaluationResult
+from app.risk.service import (
+    DEFAULT_APPROVAL_THRESHOLD,
+    DEFAULT_DENY_THRESHOLD,
+    RiskEngineService,
+)
 from app.tools.models import (
     AgentToolPermission,
     Tool,
@@ -57,6 +68,8 @@ class GovernanceService:
 
     def __init__(self, executor: ToolExecutor | None = None) -> None:
         self.executor = executor or default_executor
+        self._last_policy_evaluations: dict[str, Any] = {}
+        self._last_risk_evaluation: RiskEvaluationResult | None = None
 
     # --- Agent Runs ---
 
@@ -214,6 +227,7 @@ class GovernanceService:
     ]:
         """Internal deterministic governance evaluation implementing strict decision precedence."""
         self._last_policy_evaluations = {}
+        self._last_risk_evaluation = None
 
         # 1. Agent Validation
         agent_query = select(Agent).where(
@@ -320,9 +334,89 @@ class GovernanceService:
                     tool_version,
                 )
 
-        # 6. Tier 2: Policy Engine Evaluation
+        # Stage 2: Risk Engine Quantitative Calculation & Risk Denial Pre-Check
+        stmt_c = (
+            select(RiskConfiguration)
+            .options(selectinload(RiskConfiguration.current_version))
+            .where(RiskConfiguration.organization_id == organization_id)
+        )
+        res_c = await db.execute(stmt_c)
+        risk_config = res_c.scalar_one_or_none()
+        selected_version: RiskConfigurationVersion | None = (
+            risk_config.current_version
+            if (risk_config and risk_config.is_active and risk_config.current_version)
+            else None
+        )
+
+        try:
+            (
+                history_status,
+                violation_rate,
+                eligible_count,
+                violation_count,
+            ) = await RiskEngineService.get_agent_violation_metrics(
+                db_session=db,
+                organization_id=organization_id,
+                agent_id=agent.id,
+            )
+
+            risk_eval = RiskEngineService.evaluate_risk(
+                organization_id=organization_id,
+                agent_risk_tier=str(agent.risk_tier),
+                tool_risk_level=str(tool.risk_level),
+                tool_access_type=str(tool.access_type),
+                tool_reversibility=str(tool.reversibility),
+                tool_data_classification=str(tool.data_classification),
+                tool_approval_requirement=str(tool.approval_requirement),
+                arguments=arguments,
+                environment=run_environment,
+                history_status=history_status,
+                violation_rate=violation_rate,
+                total_eligible_invocations=eligible_count,
+                total_violations=violation_count,
+                config_version=selected_version,
+            )
+            self._last_risk_evaluation = risk_eval
+        except Exception as exc:
+            # Fail closed on risk evaluation errors
+            self._last_risk_evaluation = None
+            return (
+                GovernanceDecision.DENY,
+                [GovernanceViolationCode.RISK_EVALUATION_FAILED],
+                f"Risk evaluation failed (fail-closed): {exc}",
+                tool,
+                tool_version,
+            )
+
+        deny_threshold = selected_version.deny_threshold if selected_version else DEFAULT_DENY_THRESHOLD
+        approval_threshold = selected_version.approval_threshold if selected_version else DEFAULT_APPROVAL_THRESHOLD
+
+        # Risk Denial Pre-Check: risk_score >= deny_threshold -> DENY
+        if risk_eval.risk_score >= deny_threshold:
+            self._last_policy_evaluations = {
+                "tier1_checks": "PASSED",
+                "risk_score": risk_eval.risk_score,
+                "risk_level": risk_eval.risk_level.value,
+                "deny_threshold": deny_threshold,
+                "decision": "DENY",
+                "reason": (f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})"),
+            }
+            return (
+                GovernanceDecision.DENY,
+                [GovernanceViolationCode.CRITICAL_RISK_THRESHOLD_EXCEEDED],
+                f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})",
+                tool,
+                tool_version,
+            )
+
+        # Stage 3: Declarative Policy Engine Evaluation
         from app.policies.models import PolicyAction
         from app.policies.service import policy_service
+
+        additional_context = {
+            "risk_score": risk_eval.risk_score,
+            "risk_level": risk_eval.risk_level.value,
+        }
 
         policy_action, policy_violations, policy_remediations, matched_traces = await policy_service.evaluate_policies(
             db=db,
@@ -332,14 +426,17 @@ class GovernanceService:
             tool_version=tool_version,
             arguments=arguments,
             run_environment=run_environment,
+            additional_context=additional_context,
         )
 
         trace_data: dict[str, Any] = {
             "matched_policies": matched_traces,
             "tier1_checks": "PASSED",
+            "risk_score": risk_eval.risk_score,
+            "risk_level": risk_eval.risk_level.value,
         }
 
-        # Precedence Rule 1: DENY always wins
+        # Policy Precedence Rule: DENY always wins
         if policy_action == PolicyAction.DENY:
             combined_reason = "; ".join(policy_remediations) or "Denied by active organization policy"
             self._last_policy_evaluations = {**trace_data, "decision": "DENY"}
@@ -351,8 +448,13 @@ class GovernanceService:
                 tool_version,
             )
 
-        # 7. Tier 3: Inviolable Platform Baseline Safety Floor (Approval Triggers)
+        # Stage 4: Approval Synthesis
         approval_reasons: list[str] = []
+
+        if risk_eval.risk_score >= approval_threshold:
+            approval_reasons.append(
+                f"Risk score ({risk_eval.risk_score}) exceeds approval threshold ({approval_threshold})"
+            )
 
         if tool.approval_requirement == ToolApprovalRequirement.REQUIRED:
             approval_reasons.append("Tool configuration explicitly requires approval")
@@ -366,7 +468,7 @@ class GovernanceService:
         if tool.data_classification == ToolDataClassification.RESTRICTED:
             approval_reasons.append("Tool operates on RESTRICTED data")
 
-        # If Policy Engine requested approval OR Baseline Safety Floor triggered
+        # If Policy Engine requested approval OR Risk threshold triggered OR Baseline Safety triggered
         if policy_action == PolicyAction.REQUIRE_APPROVAL or approval_reasons:
             combined_violations: list[GovernanceViolationCode | str] = []
             if approval_reasons:
@@ -389,7 +491,7 @@ class GovernanceService:
                 tool_version,
             )
 
-        # 8. ALLOW - Every check passed cleanly
+        # Stage 5: ALLOW - Every check passed cleanly
         self._last_policy_evaluations = {**trace_data, "decision": "ALLOW"}
         return (
             GovernanceDecision.ALLOW,
@@ -478,6 +580,68 @@ class GovernanceService:
         )
         db.add(tool_request)
         await db.flush()
+
+        # Persist RiskAssessment if risk was evaluated
+        risk_eval = self._last_risk_evaluation
+        if risk_eval is not None:
+            try:
+                assessment = RiskAssessment(
+                    organization_id=organization_id,
+                    tool_request_id=tool_request.id,
+                    agent_id=request.agent_id,
+                    tool_id=request.tool_id,
+                    tool_version_id=request.tool_version_id,
+                    config_version_id=risk_eval.config_version_id,
+                    scoring_algorithm_version=risk_eval.scoring_algorithm_version,
+                    risk_score=risk_eval.risk_score,
+                    risk_level=risk_eval.risk_level,
+                    subscore_tool=risk_eval.subscores.tool,
+                    subscore_data=risk_eval.subscores.data,
+                    subscore_agent=risk_eval.subscores.agent,
+                    subscore_context=risk_eval.subscores.context,
+                    factor_breakdown=risk_eval.factor_breakdown,
+                    heuristics_matched=[m.model_dump() for m in risk_eval.heuristics_matched],
+                    config_snapshot=risk_eval.config_snapshot,
+                    explanation=risk_eval.explanation,
+                    assessed_at=risk_eval.assessed_at,
+                )
+                db.add(assessment)
+                await db.flush()
+                tool_request.risk_assessment_id = assessment.id
+                await db.flush()
+            except Exception as exc:
+                await db.rollback()
+                failed_request = ToolRequest(
+                    run_id=run.id,
+                    organization_id=organization_id,
+                    agent_id=request.agent_id,
+                    tool_id=request.tool_id,
+                    tool_version_id=request.tool_version_id,
+                    arguments=request.arguments,
+                    arguments_hash=arguments_hash,
+                    decision=GovernanceDecision.DENY,
+                    violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
+                    reason=f"Risk assessment persistence failed (fail-closed): {exc}",
+                    policy_evaluations=policy_trace,
+                    environment=run.environment,
+                    evaluated_at=datetime.now(UTC),
+                    idempotency_key=request.idempotency_key,
+                )
+                db.add(failed_request)
+                await db.commit()
+                return ToolInvocationResponse(
+                    run_id=run.id,
+                    tool_request_id=failed_request.id,
+                    decision=GovernanceDecision.DENY,
+                    violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
+                    reason=f"Risk assessment persistence failed (fail-closed): {exc}",
+                    arguments_hash=arguments_hash,
+                    execution_status=None,
+                    result=None,
+                    error_message=None,
+                    approval_request_id=None,
+                    idempotency_key=request.idempotency_key,
+                )
 
         # Decision: DENY
         if decision == GovernanceDecision.DENY:
