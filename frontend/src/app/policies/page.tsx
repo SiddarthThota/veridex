@@ -1,82 +1,225 @@
-"use client";
-
 /**
- * Governance Policy Management & Simulation (Phase 9.2 Shell).
+ * Governance Policy Management & Simulation Workbench (Phase 9.5).
  *
  * Route: /policies
  * Page Access: ADMIN, SECURITY_ANALYST, AUDITOR, AGENT_OPERATOR, VIEWER
- * Action Access:
- * - Create/Edit: ADMIN, SECURITY_ANALYST (canManagePolicies)
- * - Simulate: ADMIN, SECURITY_ANALYST, AUDITOR, AGENT_OPERATOR (canSimulatePolicies)
+ * Mutation Access: ADMIN, SECURITY_ANALYST (canManagePolicies)
+ * Simulation Access: ADMIN, SECURITY_ANALYST, AUDITOR, AGENT_OPERATOR (canSimulatePolicies)
+ * Note: VIEWER is strictly forbidden from simulation (HTTP 403 prevention).
  */
 
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { RoleGuard } from "@/components/auth/role-guard";
-import { canManagePolicies, canSimulatePolicies } from "@/lib/permissions";
-import { PoliciesIcon } from "@/components/ui/icons";
+import { usePolicies } from "@/lib/policies/use-policies";
+import { PoliciesHeader } from "@/components/policies/policies-header";
+import { PolicyRegistryTable } from "@/components/policies/policy-registry-table";
+import { PolicyDetailView } from "@/components/policies/policy-detail-view";
+import { PolicySimulationPanel } from "@/components/policies/policy-simulation-panel";
+import { PolicyModal } from "@/components/policies/policy-modal";
+import type {
+  PolicyCreate,
+  PolicyResponse,
+  PolicyRuleCreate,
+  PolicyRuleUpdate,
+  PolicyUpdate,
+} from "@/types/policies";
 
 export default function PoliciesPage() {
+  const {
+    items,
+    total,
+    totalPages,
+    page,
+    pageSize,
+    typeFilter,
+    statusFilter,
+    searchQuery,
+    loading,
+    error,
+    setTypeFilter,
+    setStatusFilter,
+    setSearchQuery,
+    setPage,
+    setPageSize,
+    refresh,
+
+    selectedPolicy,
+    selectedLoading,
+    versions,
+    selectedVersion,
+    selectPolicy,
+    selectVersion,
+
+    submitting,
+    mutationError,
+    mutationSuccess,
+    clearMutationState,
+    createPolicy,
+    updatePolicy,
+    updatePolicyStatus,
+    archivePolicy,
+    branchDraftVersion,
+    publishVersion,
+    createRule,
+    updateRule,
+    deleteRule,
+
+    simulating,
+    simulationResult,
+    simulationError,
+    simulatePolicy,
+    clearSimulationState,
+  } = usePolicies();
+
+  const [activeTab, setActiveTab] = useState<"registry" | "detail" | "simulation">("registry");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<PolicyResponse | null>(null);
+
+  const handleSelectPolicy = async (policyId: string) => {
+    await selectPolicy(policyId);
+    setActiveTab("detail");
+  };
+
+  const handleOpenNewPolicy = () => {
+    setEditingPolicy(null);
+    setModalOpen(true);
+  };
+
+  const handleOpenEditPolicy = (policy: PolicyResponse) => {
+    setEditingPolicy(policy);
+    setModalOpen(true);
+  };
+
   return (
     <AppShell>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-gray-800">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">Governance Policies</h2>
-          <p className="text-xs text-gray-400 mt-1">
-            Declarative condition trees, enforcement actions, and offline policy simulation.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <RoleGuard
-            check={canSimulatePolicies}
-            disabled
-            disabledMessage="Simulating policies requires an operational role"
-          >
-            <button
-              type="button"
-              className="py-2 px-3.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium text-xs transition-colors border border-gray-700"
-            >
-              Simulate Rule
-            </button>
-          </RoleGuard>
-          <RoleGuard
-            check={canManagePolicies}
-            disabled
-            disabledMessage="Authoring policies requires ADMIN or SECURITY_ANALYST role"
-          >
-            <button
-              type="button"
-              className="py-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs transition-colors shadow-sm shadow-indigo-600/20"
-            >
-              New Policy Rule
-            </button>
-          </RoleGuard>
-        </div>
-      </div>
+      <div className="space-y-6">
+        {/* Header & Sub-Navigation */}
+        <PoliciesHeader
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          hasSelectedPolicy={Boolean(selectedPolicy)}
+          onNewPolicy={handleOpenNewPolicy}
+          totalCount={total}
+        />
 
-      {/* Policies Container */}
-      <div className="p-6 rounded-2xl bg-gray-900/60 border border-gray-800/80">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <PoliciesIcon className="w-6 h-6" />
+        {/* Global Mutation Notification Banner */}
+        {mutationSuccess && (
+          <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center justify-between">
+            <span>{mutationSuccess}</span>
+            <button
+              type="button"
+              onClick={clearMutationState}
+              className="text-xs font-semibold underline hover:text-white"
+            >
+              Dismiss
+            </button>
           </div>
+        )}
+
+        {mutationError && (
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+            <span>{mutationError}</span>
+            <button
+              type="button"
+              onClick={clearMutationState}
+              className="text-xs font-semibold underline hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* View 1: Policy Registry */}
+        {activeTab === "registry" && (
+          <PolicyRegistryTable
+            items={items}
+            total={total}
+            totalPages={totalPages}
+            page={page}
+            pageSize={pageSize}
+            typeFilter={typeFilter}
+            statusFilter={statusFilter}
+            searchQuery={searchQuery}
+            loading={loading}
+            error={error}
+            onTypeFilterChange={setTypeFilter}
+            onStatusFilterChange={setStatusFilter}
+            onSearchChange={setSearchQuery}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            onSelectPolicy={handleSelectPolicy}
+            onEditPolicy={handleOpenEditPolicy}
+            onNewPolicy={handleOpenNewPolicy}
+            onRetry={refresh}
+          />
+        )}
+
+        {/* View 2: Policy Detail & Versioning */}
+        {activeTab === "detail" && selectedPolicy && (
           <div>
-            <h3 className="text-sm font-semibold text-white">Active Policy Rule Hierarchy</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Audited endpoint: <code className="font-mono text-emerald-300">GET /api/v1/policies</code>
-            </p>
+            {selectedLoading ? (
+              <div className="p-12 text-center text-xs text-gray-500">
+                Loading policy details and version snapshots...
+              </div>
+            ) : (
+              <PolicyDetailView
+                policy={selectedPolicy}
+                versions={versions}
+                selectedVersion={selectedVersion}
+                submitting={submitting}
+                onSelectVersion={selectVersion}
+                onBranchDraft={async (changelog) => branchDraftVersion(selectedPolicy.id, changelog)}
+                onPublishVersion={async (versionId) => publishVersion(selectedPolicy.id, versionId)}
+                onUpdateStatus={async (newStatus) => updatePolicyStatus(selectedPolicy.id, newStatus)}
+                onArchive={async () => {
+                  const ok = await archivePolicy(selectedPolicy.id);
+                  if (ok) setActiveTab("registry");
+                  return ok;
+                }}
+                onSaveRule={async (versionId, ruleData, ruleId) => {
+                  if (ruleId) {
+                    return updateRule(selectedPolicy.id, versionId, ruleId, ruleData as PolicyRuleUpdate);
+                  }
+                  return createRule(selectedPolicy.id, versionId, ruleData as PolicyRuleCreate);
+                }}
+                onDeleteRule={async (versionId, ruleId) => deleteRule(selectedPolicy.id, versionId, ruleId)}
+                onBack={() => setActiveTab("registry")}
+              />
+            )}
           </div>
-        </div>
+        )}
 
-        <div className="p-12 text-center rounded-xl bg-gray-950/50 border border-dashed border-gray-800">
-          <p className="text-sm text-gray-300 font-medium">Policy Engine Configured</p>
-          <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
-            Governance rules, deterministic boolean condition trees, and gate triggers are enforced on all tool invocations.
-          </p>
-        </div>
+        {/* View 3: Dry-Run Simulation Studio */}
+        {activeTab === "simulation" && (
+          <PolicySimulationPanel
+            onSimulate={simulatePolicy}
+            simulating={simulating}
+            result={simulationResult}
+            error={simulationError}
+            onClear={clearSimulationState}
+          />
+        )}
+
+        {/* Policy Authoring/Edit Container Modal */}
+        {modalOpen && (
+          <PolicyModal
+            initialPolicy={editingPolicy}
+            submitting={submitting}
+            onClose={() => {
+              setModalOpen(false);
+              setEditingPolicy(null);
+            }}
+            onSave={async (data) => {
+              if (editingPolicy) {
+                return updatePolicy(editingPolicy.id, data as PolicyUpdate);
+              }
+              return createPolicy(data as PolicyCreate);
+            }}
+          />
+        )}
       </div>
     </AppShell>
   );
 }
-
