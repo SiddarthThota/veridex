@@ -347,9 +347,12 @@ class RiskEngineService:
                 codes = set(req.violation_codes or [])
                 if codes.intersection(MISCONDUCT_VIOLATION_CODES) or not codes:
                     violation_count += 1
-            elif req.decision == GovernanceDecision.REQUIRE_APPROVAL:
-                if req.approval_request and req.approval_request.status == ApprovalStatus.REJECTED:
-                    violation_count += 1
+            elif (
+                req.decision == GovernanceDecision.REQUIRE_APPROVAL
+                and req.approval_request
+                and req.approval_request.status == ApprovalStatus.REJECTED
+            ):
+                violation_count += 1
 
         # Insufficient data rule: N < 5
         if eligible_count < 5:
