@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -204,3 +205,5 @@ class RiskAssessment(Base, UUIDMixin, TimestampMixin):
         "ToolRequest",
         foreign_keys=[tool_request_id],
     )
+
+    __table_args__ = (Index("ix_risk_assessments_org_assessed", "organization_id", "assessed_at"),)

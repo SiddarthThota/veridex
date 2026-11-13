@@ -1,8 +1,8 @@
 # VERIDEX — Project Status
 
-## Current Phase: 7 — Risk Engine ✅
+## Current Phase: 8 — Monitoring, Observability & Governance Analytics ✅ COMPLETE
 
-**Last Updated:** 2026-11-11T21:25:00+05:30
+**Last Updated:** 2026-11-13T10:15:00+05:30
 
 ---
 
@@ -54,7 +54,7 @@
 | 5     | Governance Gateway              | ✅ COMPLETE | Deterministic default-deny gateway, executor isolation, HITL approvals |
 | 6     | Policy Engine                   | ✅ COMPLETE | Versioned declarative policy engine, safe AST evaluator, multi-tier precedence |
 | 7     | Risk Engine                     | ✅ COMPLETE | Four-vector scoring, 5-stage precedence, dynamic heuristics, versioning, REST APIs, E2E lifecycle |
-| 8     | Human Approval Workflow         | 🔲 PENDING  |                                       |
+| 8     | Monitoring & Governance Analytics | ✅ COMPLETE | OpenTelemetry telemetry, latency persistence, composite DB indexes, AnalyticsService, REST APIs, anomaly detection |
 | 9     | Audit Log & Hash Chain          | 🔲 PENDING  |                                       |
 | 10    | Agent Simulator                 | 🔲 PENDING  |                                       |
 | 11    | Real AI Integration             | 🔲 PENDING  |                                       |
@@ -327,4 +327,72 @@
 - A dedicated live PostgreSQL container or database for `veridex` was unavailable in the local environment (Docker Desktop inactive; system service on 5432 not pre-configured with project credentials). Full live PostgreSQL integration testing is recommended prior to production deployment.
 
 #### Next Phase
-Phase 8 — Human Approval Workflow (pending explicit user authorization)
+Phase 8 — Monitoring, Observability & Governance Analytics ✅ COMPLETE
+
+---
+
+## Phase 8 — Completion Record: Monitoring, Observability & Governance Analytics
+
+### Sub-phase Overview
+- **Phase 8.1:** OpenTelemetry tracing, bounded metrics, FastAPI/SQLAlchemy/HTTPX auto-instrumentation, privacy safeguards, and fail-silent telemetry error isolation.
+- **Phase 8.2:** Precise high-resolution evaluation latency measurement (`evaluation_duration_ms`) and 6 composite database indexes on `tool_requests`, `risk_assessments`, and `approval_requests` via Alembic migration `e59b2f6a9c40`.
+- **Phase 8.3:** Analytics Engine (`AnalyticsService`, `AnalyticsQueries`, `AnomalyDetector`) providing multi-tenant SQL aggregations, time-series trend generation, quantitative risk distributions (10 histogram buckets), agent/tool activity tracking, and read-only statistical anomaly detection.
+- **Phase 8.4:** Authenticated, organization-scoped REST endpoints under `/api/v1/analytics` (`overview`, `trends`, `risk-distribution`, `agents`, `tools`, `anomalies`) with strict RBAC (`ADMIN`, `SECURITY_ANALYST`, `AUDITOR`) and client query parameter tampering defense.
+- **Phase 8.5:** Master integration, offline PostgreSQL migration generation, full test suite execution, static analysis, and release readiness verification.
+
+### Files Created in Phase 8
+- `backend/alembic/versions/e59b2f6a9c40_add_eval_duration_and_governance_indexes.py`
+- `backend/app/analytics/__init__.py`
+- `backend/app/analytics/exceptions.py`
+- `backend/app/analytics/schemas.py`
+- `backend/app/analytics/queries.py`
+- `backend/app/analytics/anomalies.py`
+- `backend/app/analytics/service.py`
+- `backend/app/api/v1/analytics.py`
+- `backend/app/telemetry/setup.py`
+- `backend/tests/integration/test_analytics_api.py`
+- `backend/tests/unit/test_analytics_service.py`
+- `backend/tests/unit/test_governance_performance.py`
+- `backend/tests/unit/test_telemetry.py`
+
+### Files Modified in Phase 8
+- `backend/app/main.py`
+- `backend/app/api/v1/router.py`
+- `backend/app/governance/models.py`
+- `backend/app/governance/schemas.py`
+- `backend/app/governance/service.py`
+- `backend/app/risk/models.py`
+- `backend/app/telemetry/__init__.py`
+- `API_GUIDE.md`
+- `ARCHITECTURE.md`
+- `OPERATIONS.md`
+- `PROJECT_STATUS.md`
+
+### Test Suite Execution
+- **Total Tests Collected & Executed:** **183**
+- **Passed:** **183**
+- **Failed:** **0**
+- **Warnings:** 2 (Starlette test client deprecation notices)
+- **Suite Breakdown:**
+  - `tests/unit/test_telemetry.py`: 9 passed
+  - `tests/unit/test_governance_performance.py`: 8 passed
+  - `tests/unit/test_analytics_service.py`: 22 passed
+  - `tests/integration/test_analytics_api.py`: 13 passed
+  - Pre-existing regression suites (Phases 0–7): 131 passed
+
+### Quality Gates Completed
+- **Ruff Lint:** `uv run --offline ruff check .` passed with 0 violations.
+- **Ruff Format:** `uv run --offline ruff format --check .` passed (102 files formatted).
+- **Mypy Type-Checking:** `uv run --offline mypy app` passed with 0 errors across 66 source files.
+- **Alembic Migration Verification:**
+  - Linear chain confirmed: single head at `e59b2f6a9c40`.
+  - Offline static SQL generation verified for both upgrade and downgrade targeting PostgreSQL transactional DDL.
+  - Symmetrical drop/create index operations and column additions confirmed.
+
+### Known Limitations
+1. **Live PostgreSQL Verification:** Live PostgreSQL upgrade/downgrade execution was not performed because Docker Desktop was inactive in the host environment. Migration syntax was fully validated via offline static SQL compilation.
+2. **Persistent Metric Storage & Visualization:** OpenTelemetry metrics are exported via OTLP; dashboard visualization requires external infrastructure (e.g. Prometheus + Grafana or cloud monitoring).
+3. **Frontend Analytics Dashboards:** UI components for analytics visualizations are deferred to future frontend milestones; the backend REST API is fully functional.
+
+#### Next Phase
+Phase 8 Final Release Authorization (awaiting project owner sign-off)

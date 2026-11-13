@@ -9,6 +9,7 @@ Enforces deterministic, default-deny governance policies for agent tool invocati
 - Execution isolation via trusted ToolExecutor
 """
 
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.agents.models import Agent, AgentStatus
-from app.governance.executor import ToolExecutor, default_executor
+from app.governance.executor import ExecutionResult, ToolExecutor, default_executor
 from app.governance.models import (
     AgentRun,
     ApprovalRequest,
@@ -48,6 +49,12 @@ from app.risk.service import (
     DEFAULT_APPROVAL_THRESHOLD,
     DEFAULT_DENY_THRESHOLD,
     RiskEngineService,
+)
+from app.telemetry import (
+    get_tracer,
+    record_governance_request,
+    record_tool_execution,
+    safe_set_attributes,
 )
 from app.tools.models import (
     AgentToolPermission,
@@ -501,6 +508,55 @@ class GovernanceService:
             tool_version,
         )
 
+    # --- Tool Execution with Telemetry ---
+
+    async def _execute_tool_with_telemetry(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+        environment: str,
+    ) -> ExecutionResult:
+        """Execute a tool wrapped in an OpenTelemetry child span with metrics emission."""
+        tracer = get_tracer("veridex.governance")
+        op_category = (
+            tool.access_type.value.lower()
+            if hasattr(tool, "access_type") and tool.access_type is not None
+            else "execute"
+        )
+        with tracer.start_as_current_span("veridex.tool.execute") as child_span:
+            safe_set_attributes(
+                child_span,
+                {
+                    "veridex.operation": op_category,
+                    "veridex.tool_id": str(tool.id),
+                },
+            )
+
+            exec_result = await self.executor.execute(
+                slug=tool.slug,
+                arguments=arguments,
+                timeout_seconds=tool.timeout_seconds,
+            )
+
+            status_str = exec_result.status.value if hasattr(exec_result.status, "value") else str(exec_result.status)
+
+            safe_set_attributes(
+                child_span,
+                {
+                    "veridex.status": status_str,
+                    "veridex.duration_ms": exec_result.duration_ms,
+                },
+            )
+
+            record_tool_execution(
+                operation=op_category,
+                status=status_str,
+                environment=environment,
+                duration_seconds=exec_result.duration_ms / 1000.0,
+            )
+
+            return exec_result
+
     # --- Tool Invocation Gateway ---
 
     async def invoke_tool(
@@ -511,213 +567,295 @@ class GovernanceService:
         request: ToolInvocationRequest,
     ) -> ToolInvocationResponse:
         """Execute a tool invocation through the deterministic Governance Gateway."""
-        # Validate active AgentRun
-        run = await self.get_agent_run(db, organization_id, run_id)
-        if not run:
-            raise ValueError(f"AgentRun '{run_id}' not found in organization")
-        if run.status != RunStatus.RUNNING:
-            raise ValueError(f"AgentRun '{run_id}' is not in RUNNING status (current: {run.status})")
+        tracer = get_tracer("veridex.governance")
+        eval_start_time = time.monotonic()
 
-        # Idempotency Check
-        if request.idempotency_key:
-            existing_query = (
-                select(ToolRequest)
-                .where(
-                    ToolRequest.organization_id == organization_id,
-                    ToolRequest.idempotency_key == request.idempotency_key,
-                )
-                .options(
-                    selectinload(ToolRequest.execution),
-                    selectinload(ToolRequest.approval_request),
-                )
+        with tracer.start_as_current_span("veridex.governance.evaluate") as span:
+            safe_set_attributes(
+                span,
+                {
+                    "veridex.organization_id": str(organization_id),
+                    "veridex.run_id": str(run_id),
+                    "veridex.agent_id": str(request.agent_id),
+                    "veridex.tool_id": str(request.tool_id),
+                    "veridex.tool_version_id": str(request.tool_version_id),
+                },
             )
-            existing_req = (await db.execute(existing_query)).scalar_one_or_none()
-            if existing_req:
-                return ToolInvocationResponse(
-                    run_id=existing_req.run_id,
-                    tool_request_id=existing_req.id,
-                    decision=existing_req.decision,
-                    violation_codes=existing_req.violation_codes,
-                    reason="Idempotent replay of previously evaluated request",
-                    arguments_hash=existing_req.arguments_hash,
-                    execution_status=existing_req.execution.status if existing_req.execution else None,
-                    result=existing_req.execution.result if existing_req.execution else None,
-                    error_message=existing_req.execution.error_message if existing_req.execution else None,
-                    approval_request_id=existing_req.approval_request.id if existing_req.approval_request else None,
-                    idempotency_key=existing_req.idempotency_key,
+
+            # Validate active AgentRun
+            run = await self.get_agent_run(db, organization_id, run_id)
+            if not run:
+                raise ValueError(f"AgentRun '{run_id}' not found in organization")
+            if run.status != RunStatus.RUNNING:
+                raise ValueError(f"AgentRun '{run_id}' is not in RUNNING status (current: {run.status})")
+
+            # Idempotency Check
+            if request.idempotency_key:
+                existing_query = (
+                    select(ToolRequest)
+                    .where(
+                        ToolRequest.organization_id == organization_id,
+                        ToolRequest.idempotency_key == request.idempotency_key,
+                    )
+                    .options(
+                        selectinload(ToolRequest.execution),
+                        selectinload(ToolRequest.approval_request),
+                    )
                 )
+                existing_req = (await db.execute(existing_query)).scalar_one_or_none()
+                if existing_req:
+                    duration_sec = time.monotonic() - eval_start_time
+                    dec_str = (
+                        existing_req.decision.value
+                        if hasattr(existing_req.decision, "value")
+                        else str(existing_req.decision)
+                    )
+                    safe_set_attributes(
+                        span,
+                        {
+                            "veridex.decision": dec_str,
+                            "veridex.violation_codes": [str(c) for c in (existing_req.violation_codes or [])],
+                            "veridex.risk_level": "UNKNOWN",
+                        },
+                    )
+                    record_governance_request(
+                        decision=dec_str,
+                        risk_level="UNKNOWN",
+                        environment=run.environment,
+                        duration_seconds=duration_sec,
+                    )
+                    return ToolInvocationResponse(
+                        run_id=existing_req.run_id,
+                        tool_request_id=existing_req.id,
+                        decision=existing_req.decision,
+                        violation_codes=existing_req.violation_codes,
+                        reason="Idempotent replay of previously evaluated request",
+                        arguments_hash=existing_req.arguments_hash,
+                        execution_status=existing_req.execution.status if existing_req.execution else None,
+                        result=existing_req.execution.result if existing_req.execution else None,
+                        error_message=existing_req.execution.error_message if existing_req.execution else None,
+                        approval_request_id=existing_req.approval_request.id if existing_req.approval_request else None,
+                        idempotency_key=existing_req.idempotency_key,
+                        evaluation_duration_ms=existing_req.evaluation_duration_ms,
+                    )
 
-        # Governance Evaluation
-        decision, violation_codes, reason, tool, _tool_version = await self._evaluate_policy(
-            db=db,
-            organization_id=organization_id,
-            agent_id=request.agent_id,
-            tool_id=request.tool_id,
-            tool_version_id=request.tool_version_id,
-            arguments=request.arguments,
-            run_environment=run.environment,
-        )
-        policy_trace = self._last_policy_evaluations
-
-        arguments_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
-
-        # Record ToolRequest audit trail
-        tool_request = ToolRequest(
-            run_id=run.id,
-            organization_id=organization_id,
-            agent_id=request.agent_id,
-            tool_id=request.tool_id,
-            tool_version_id=request.tool_version_id,
-            arguments=request.arguments,
-            arguments_hash=arguments_hash,
-            decision=decision,
-            violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
-            reason=reason,
-            policy_evaluations=policy_trace,
-            environment=run.environment,
-            evaluated_at=datetime.now(UTC),
-            idempotency_key=request.idempotency_key,
-        )
-        db.add(tool_request)
-        await db.flush()
-
-        # Persist RiskAssessment if risk was evaluated
-        risk_eval = self._last_risk_evaluation
-        if risk_eval is not None:
+            # Governance Evaluation Timing Boundary
+            eval_start_ns = time.perf_counter_ns()
             try:
-                assessment = RiskAssessment(
-                    organization_id=organization_id,
-                    tool_request_id=tool_request.id,
-                    agent_id=request.agent_id,
-                    tool_id=request.tool_id,
-                    tool_version_id=request.tool_version_id,
-                    config_version_id=risk_eval.config_version_id,
-                    scoring_algorithm_version=risk_eval.scoring_algorithm_version,
-                    risk_score=risk_eval.risk_score,
-                    risk_level=risk_eval.risk_level,
-                    subscore_tool=risk_eval.subscores.tool,
-                    subscore_data=risk_eval.subscores.data,
-                    subscore_agent=risk_eval.subscores.agent,
-                    subscore_context=risk_eval.subscores.context,
-                    factor_breakdown=risk_eval.factor_breakdown,
-                    heuristics_matched=[m.model_dump() for m in risk_eval.heuristics_matched],
-                    config_snapshot=risk_eval.config_snapshot,
-                    explanation=risk_eval.explanation,
-                    assessed_at=risk_eval.assessed_at,
-                )
-                db.add(assessment)
-                await db.flush()
-                tool_request.risk_assessment_id = assessment.id
-                await db.flush()
-            except Exception as exc:
-                await db.rollback()
-                failed_request = ToolRequest(
-                    run_id=run.id,
+                decision, violation_codes, reason, tool, _tool_version = await self._evaluate_policy(
+                    db=db,
                     organization_id=organization_id,
                     agent_id=request.agent_id,
                     tool_id=request.tool_id,
                     tool_version_id=request.tool_version_id,
                     arguments=request.arguments,
-                    arguments_hash=arguments_hash,
-                    decision=GovernanceDecision.DENY,
-                    violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
-                    reason=f"Risk assessment persistence failed (fail-closed): {exc}",
-                    policy_evaluations=policy_trace,
-                    environment=run.environment,
-                    evaluated_at=datetime.now(UTC),
-                    idempotency_key=request.idempotency_key,
+                    run_environment=run.environment,
                 )
-                db.add(failed_request)
+            finally:
+                eval_end_ns = time.perf_counter_ns()
+                eval_duration_ms = (eval_end_ns - eval_start_ns) / 1_000_000.0
+            duration_sec = time.monotonic() - eval_start_time
+            policy_trace = self._last_policy_evaluations
+            risk_eval = self._last_risk_evaluation
+            arguments_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
+
+            dec_str = decision.value if hasattr(decision, "value") else str(decision)
+            v_codes_str = [code.value if hasattr(code, "value") else str(code) for code in violation_codes]
+
+            risk_lvl_str = "UNKNOWN"
+            if risk_eval is not None and risk_eval.risk_level is not None:
+                risk_lvl_str = (
+                    risk_eval.risk_level.value if hasattr(risk_eval.risk_level, "value") else str(risk_eval.risk_level)
+                )
+            elif tool is not None and tool.risk_level is not None:
+                risk_lvl_str = tool.risk_level.value if hasattr(tool.risk_level, "value") else str(tool.risk_level)
+
+            op_category = (
+                tool.access_type.value.lower()
+                if tool is not None and hasattr(tool, "access_type") and tool.access_type is not None
+                else None
+            )
+
+            safe_set_attributes(
+                span,
+                {
+                    "veridex.decision": dec_str,
+                    "veridex.violation_codes": v_codes_str,
+                    "veridex.risk_level": risk_lvl_str,
+                    "veridex.operation": op_category,
+                    "veridex.risk_score": int(risk_eval.risk_score) if risk_eval is not None else None,
+                },
+            )
+
+            record_governance_request(
+                decision=dec_str,
+                risk_level=risk_lvl_str,
+                environment=run.environment,
+                duration_seconds=duration_sec,
+            )
+
+            # Record ToolRequest audit trail
+            tool_request = ToolRequest(
+                run_id=run.id,
+                organization_id=organization_id,
+                agent_id=request.agent_id,
+                tool_id=request.tool_id,
+                tool_version_id=request.tool_version_id,
+                arguments=request.arguments,
+                arguments_hash=arguments_hash,
+                decision=decision,
+                violation_codes=v_codes_str,
+                reason=reason,
+                policy_evaluations=policy_trace,
+                environment=run.environment,
+                evaluated_at=datetime.now(UTC),
+                idempotency_key=request.idempotency_key,
+                evaluation_duration_ms=eval_duration_ms,
+            )
+            db.add(tool_request)
+            await db.flush()
+
+            # Persist RiskAssessment if risk was evaluated
+            if risk_eval is not None:
+                try:
+                    assessment = RiskAssessment(
+                        organization_id=organization_id,
+                        tool_request_id=tool_request.id,
+                        agent_id=request.agent_id,
+                        tool_id=request.tool_id,
+                        tool_version_id=request.tool_version_id,
+                        config_version_id=risk_eval.config_version_id,
+                        scoring_algorithm_version=risk_eval.scoring_algorithm_version,
+                        risk_score=risk_eval.risk_score,
+                        risk_level=risk_eval.risk_level,
+                        subscore_tool=risk_eval.subscores.tool,
+                        subscore_data=risk_eval.subscores.data,
+                        subscore_agent=risk_eval.subscores.agent,
+                        subscore_context=risk_eval.subscores.context,
+                        factor_breakdown=risk_eval.factor_breakdown,
+                        heuristics_matched=[m.model_dump() for m in risk_eval.heuristics_matched],
+                        config_snapshot=risk_eval.config_snapshot,
+                        explanation=risk_eval.explanation,
+                        assessed_at=risk_eval.assessed_at,
+                    )
+                    db.add(assessment)
+                    await db.flush()
+                    tool_request.risk_assessment_id = assessment.id
+                    await db.flush()
+                except Exception as exc:
+                    await db.rollback()
+                    failed_request = ToolRequest(
+                        run_id=run.id,
+                        organization_id=organization_id,
+                        agent_id=request.agent_id,
+                        tool_id=request.tool_id,
+                        tool_version_id=request.tool_version_id,
+                        arguments=request.arguments,
+                        arguments_hash=arguments_hash,
+                        decision=GovernanceDecision.DENY,
+                        violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
+                        reason=f"Risk assessment persistence failed (fail-closed): {exc}",
+                        policy_evaluations=policy_trace,
+                        environment=run.environment,
+                        evaluated_at=datetime.now(UTC),
+                        idempotency_key=request.idempotency_key,
+                        evaluation_duration_ms=eval_duration_ms,
+                    )
+                    db.add(failed_request)
+                    await db.commit()
+                    return ToolInvocationResponse(
+                        run_id=run.id,
+                        tool_request_id=failed_request.id,
+                        decision=GovernanceDecision.DENY,
+                        violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
+                        reason=f"Risk assessment persistence failed (fail-closed): {exc}",
+                        arguments_hash=arguments_hash,
+                        execution_status=None,
+                        result=None,
+                        error_message=None,
+                        approval_request_id=None,
+                        idempotency_key=request.idempotency_key,
+                        evaluation_duration_ms=failed_request.evaluation_duration_ms,
+                    )
+
+            # Decision: DENY
+            if decision == GovernanceDecision.DENY:
                 await db.commit()
                 return ToolInvocationResponse(
                     run_id=run.id,
-                    tool_request_id=failed_request.id,
-                    decision=GovernanceDecision.DENY,
-                    violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED.value],
-                    reason=f"Risk assessment persistence failed (fail-closed): {exc}",
+                    tool_request_id=tool_request.id,
+                    decision=decision,
+                    violation_codes=v_codes_str,
+                    reason=reason,
                     arguments_hash=arguments_hash,
                     execution_status=None,
                     result=None,
                     error_message=None,
                     approval_request_id=None,
                     idempotency_key=request.idempotency_key,
+                    evaluation_duration_ms=tool_request.evaluation_duration_ms,
                 )
 
-        # Decision: DENY
-        if decision == GovernanceDecision.DENY:
+            # Decision: REQUIRE_APPROVAL
+            if decision == GovernanceDecision.REQUIRE_APPROVAL:
+                approval_request = ApprovalRequest(
+                    organization_id=organization_id,
+                    tool_request_id=tool_request.id,
+                    status=ApprovalStatus.PENDING,
+                    integrity_hash=arguments_hash,
+                )
+                db.add(approval_request)
+                await db.commit()
+                await db.refresh(approval_request)
+
+                return ToolInvocationResponse(
+                    run_id=run.id,
+                    tool_request_id=tool_request.id,
+                    decision=decision,
+                    violation_codes=v_codes_str,
+                    reason=reason,
+                    arguments_hash=arguments_hash,
+                    execution_status=None,
+                    result=None,
+                    error_message=None,
+                    approval_request_id=approval_request.id,
+                    idempotency_key=request.idempotency_key,
+                    evaluation_duration_ms=tool_request.evaluation_duration_ms,
+                )
+
+            # Decision: ALLOW -> Execute Tool
+            assert tool is not None
+            exec_result = await self._execute_tool_with_telemetry(
+                tool=tool,
+                arguments=request.arguments,
+                environment=run.environment,
+            )
+
+            tool_execution = ToolExecution(
+                tool_request_id=tool_request.id,
+                status=exec_result.status,
+                result=exec_result.result,
+                error_message=exec_result.error_message,
+                duration_ms=exec_result.duration_ms,
+                executed_at=datetime.now(UTC),
+            )
+            db.add(tool_execution)
             await db.commit()
+
             return ToolInvocationResponse(
                 run_id=run.id,
                 tool_request_id=tool_request.id,
                 decision=decision,
-                violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
+                violation_codes=[],
                 reason=reason,
                 arguments_hash=arguments_hash,
-                execution_status=None,
-                result=None,
-                error_message=None,
+                execution_status=exec_result.status,
+                result=exec_result.result,
+                error_message=exec_result.error_message,
                 approval_request_id=None,
                 idempotency_key=request.idempotency_key,
+                evaluation_duration_ms=tool_request.evaluation_duration_ms,
             )
-
-        # Decision: REQUIRE_APPROVAL
-        if decision == GovernanceDecision.REQUIRE_APPROVAL:
-            approval_request = ApprovalRequest(
-                organization_id=organization_id,
-                tool_request_id=tool_request.id,
-                status=ApprovalStatus.PENDING,
-                integrity_hash=arguments_hash,
-            )
-            db.add(approval_request)
-            await db.commit()
-            await db.refresh(approval_request)
-
-            return ToolInvocationResponse(
-                run_id=run.id,
-                tool_request_id=tool_request.id,
-                decision=decision,
-                violation_codes=[code.value if hasattr(code, "value") else str(code) for code in violation_codes],
-                reason=reason,
-                arguments_hash=arguments_hash,
-                execution_status=None,
-                result=None,
-                error_message=None,
-                approval_request_id=approval_request.id,
-                idempotency_key=request.idempotency_key,
-            )
-
-        # Decision: ALLOW -> Execute Tool
-        assert tool is not None
-        exec_result = await self.executor.execute(
-            slug=tool.slug,
-            arguments=request.arguments,
-            timeout_seconds=tool.timeout_seconds,
-        )
-
-        tool_execution = ToolExecution(
-            tool_request_id=tool_request.id,
-            status=exec_result.status,
-            result=exec_result.result,
-            error_message=exec_result.error_message,
-            duration_ms=exec_result.duration_ms,
-            executed_at=datetime.now(UTC),
-        )
-        db.add(tool_execution)
-        await db.commit()
-
-        return ToolInvocationResponse(
-            run_id=run.id,
-            tool_request_id=tool_request.id,
-            decision=decision,
-            violation_codes=[],
-            reason=reason,
-            arguments_hash=arguments_hash,
-            execution_status=exec_result.status,
-            result=exec_result.result,
-            error_message=exec_result.error_message,
-            approval_request_id=None,
-            idempotency_key=request.idempotency_key,
-        )
 
     # --- Approval Workflow ---
 
@@ -844,10 +982,10 @@ class GovernanceService:
             return updated_approval
 
         # Execute approved tool
-        exec_result = await self.executor.execute(
-            slug=tool.slug,
+        exec_result = await self._execute_tool_with_telemetry(
+            tool=tool,
             arguments=tool_request.arguments,
-            timeout_seconds=tool.timeout_seconds,
+            environment=tool_request.environment,
         )
 
         tool_execution = ToolExecution(

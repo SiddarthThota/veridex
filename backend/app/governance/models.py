@@ -15,13 +15,15 @@ from sqlalchemy import (
     JSON,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.database.base import Base, TimestampMixin, UUIDMixin
 
@@ -161,6 +163,20 @@ class ToolRequest(Base, UUIDMixin, TimestampMixin):
     environment: Mapped[str] = mapped_column(String(50), default="DEVELOPMENT", nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    evaluation_duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    @validates("evaluation_duration_ms")
+    def validate_evaluation_duration(self, key: str, value: float | None) -> float | None:
+        if value is not None and value < 0.0:
+            raise ValueError(f"evaluation_duration_ms must be non-negative, got {value}")
+        return value
+
+    __table_args__ = (
+        Index("ix_tool_requests_org_evaluated", "organization_id", "evaluated_at"),
+        Index("ix_tool_requests_org_decision_evaluated", "organization_id", "decision", "evaluated_at"),
+        Index("ix_tool_requests_org_agent_evaluated", "organization_id", "agent_id", "evaluated_at"),
+        Index("ix_tool_requests_org_tool_evaluated", "organization_id", "tool_id", "evaluated_at"),
+    )
 
     run: Mapped[AgentRun | None] = relationship("AgentRun", back_populates="tool_requests")
     organization = relationship("Organization")
@@ -255,4 +271,7 @@ class ApprovalRequest(Base, UUIDMixin, TimestampMixin):
     requested_by = relationship("User", foreign_keys=[requested_by_user_id])
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
 
-    __table_args__ = (UniqueConstraint("tool_request_id", name="uq_approval_tool_request"),)
+    __table_args__ = (
+        UniqueConstraint("tool_request_id", name="uq_approval_tool_request"),
+        Index("ix_approval_requests_org_created", "organization_id", "created_at"),
+    )

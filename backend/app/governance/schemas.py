@@ -144,6 +144,7 @@ class ToolRequestResponse(BaseModel):
     idempotency_key: str | None = None
     policy_evaluations: dict[str, Any] | None = None
     risk_assessment_id: uuid.UUID | None = None
+    evaluation_duration_ms: float | None = None
     created_at: datetime
     execution: ToolExecutionResponse | None = None
     approval_request: ApprovalRequestSummaryResponse | None = None
@@ -172,6 +173,7 @@ class ToolInvocationResponse(BaseModel):
     error_message: str | None = None
     approval_request_id: uuid.UUID | None = None
     idempotency_key: str | None = None
+    evaluation_duration_ms: float | None = None
 
 
 # --- Approval Schemas ---
@@ -200,6 +202,7 @@ class ToolRequestInApprovalResponse(BaseModel):
     idempotency_key: str | None = None
     policy_evaluations: dict[str, Any] | None = None
     risk_assessment_id: uuid.UUID | None = None
+    evaluation_duration_ms: float | None = None
     created_at: datetime
     execution: ToolExecutionResponse | None = None
 

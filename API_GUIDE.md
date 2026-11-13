@@ -7,7 +7,6 @@
 ```
 http://localhost:8000/api/v1
 ```
-
 ## Available Endpoints
 
 ### Health
@@ -398,5 +397,262 @@ Retrieves the empirical risk and trust profile for an agent based on its 7-day s
   "deny_threshold": 90,
   "heuristic_rules": [],
   "changelog": "Standard production risk profile"
+}
+```
+---
+
+## Phase 8.4 Analytics API Reference
+
+The Governance Analytics Engine provides high-performance, organization-isolated reporting and statistical anomaly detection.
+
+### Authentication & Authorization
+- **Security:** Bearer JWT token required in `Authorization: Bearer <token>`.
+- **Allowed Roles:** `ADMIN`, `SECURITY_ANALYST`, `AUDITOR`.
+- **Forbidden Roles (403):** `AGENT_OPERATOR`, `VIEWER`.
+- **Tenant Isolation:** The calling tenant's `organization_id` is derived exclusively from the authenticated JWT principal. Any attempt to supply a `?organization_id=...` query parameter is rejected with `400 Bad Request`.
+
+### Time Range & Pagination Parameters
+- **Time Window Semantics:** Half-open interval $[start\_time, end\_time)$ in UTC.
+- **Defaults:** `start_time` defaults to 7 days prior to `end_time`; `end_time` defaults to `now(UTC)`.
+- **Max Window:** 90 days. Intervals $> 90$ days return `422 Unprocessable Entity`.
+- **Granularity:** `hour` (ranges $\le 14$ days) or `day` (ranges $\le 90$ days).
+- **Pagination:** `page >= 1` (default: 1), `page_size` between 1 and 100 (default: 20).
+
+---
+
+### 1. Overview Analytics (`GET /api/v1/analytics/overview`)
+
+Retrieves volumetric counts, decision percentages, tool execution totals, and approval resolution statistics.
+
+#### Query Parameters:
+- `start_time` (optional ISO 8601 string)
+- `end_time` (optional ISO 8601 string)
+
+#### Example Response:
+```json
+{
+  "total_invocations": 1250,
+  "allow_count": 1050,
+  "deny_count": 150,
+  "require_approval_count": 50,
+  "allow_percentage": 84.0,
+  "deny_percentage": 12.0,
+  "require_approval_percentage": 4.0,
+  "total_tool_executions": 1050,
+  "total_approvals": 50,
+  "approved_approvals": 40,
+  "rejected_approvals": 8,
+  "pending_approvals": 2,
+  "expired_approvals": 0,
+  "approval_resolution_rate": 0.8333,
+  "start_time": "2026-11-05T00:00:00Z",
+  "end_time": "2026-11-12T00:00:00Z"
+}
+```
+---
+
+### 2. Trends Analytics (`GET /api/v1/analytics/trends`)
+
+Retrieves time-series buckets with zero-filled gaps for invocations, executions, and risk assessments.
+
+#### Query Parameters:
+- `start_time` (optional ISO 8601 string)
+- `end_time` (optional ISO 8601 string)
+- `granularity`: `hour` | `day` (default: `day`)
+
+#### Example Response:
+```json
+{
+  "granularity": "day",
+  "buckets": [
+    {
+      "timestamp": "2026-11-11T00:00:00Z",
+      "total_invocations": 180,
+      "allow_count": 160,
+      "deny_count": 15,
+      "require_approval_count": 5,
+      "tool_executions_count": 160,
+      "risk_assessments_count": 180
+    }
+  ],
+  "start_time": "2026-11-11T00:00:00Z",
+  "end_time": "2026-11-12T00:00:00Z"
+}
+```
+---
+
+### 3. Risk Distribution (`GET /api/v1/analytics/risk-distribution`)
+
+Calculates risk level counts, summary score statistics, and the standard 10-bucket risk histogram.
+
+#### Query Parameters:
+- `start_time` (optional ISO 8601 string)
+- `end_time` (optional ISO 8601 string)
+
+#### Example Response:
+```json
+{
+  "total_assessments": 500,
+  "low_count": 350,
+  "medium_count": 100,
+  "high_count": 40,
+  "critical_count": 10,
+  "average_risk_score": 28.45,
+  "min_risk_score": 5,
+  "max_risk_score": 96,
+  "histogram": [
+    {"range_label": "[0,10)", "min_score": 0, "max_score": 9, "count": 120},
+    {"range_label": "[10,20)", "min_score": 10, "max_score": 19, "count": 130},
+    {"range_label": "[20,30)", "min_score": 20, "max_score": 29, "count": 100},
+    {"range_label": "[30,40)", "min_score": 30, "max_score": 39, "count": 60},
+    {"range_label": "[40,50)", "min_score": 40, "max_score": 49, "count": 40},
+    {"range_label": "[50,60)", "min_score": 50, "max_score": 59, "count": 25},
+    {"range_label": "[60,70)", "min_score": 60, "max_score": 69, "count": 10},
+    {"range_label": "[70,80)", "min_score": 70, "max_score": 79, "count": 5},
+    {"range_label": "[80,90)", "min_score": 80, "max_score": 89, "count": 5},
+    {"range_label": "[90,100]", "min_score": 90, "max_score": 100, "count": 5}
+  ],
+  "start_time": "2026-11-05T00:00:00Z",
+  "end_time": "2026-11-12T00:00:00Z"
+}
+```
+---
+
+### 4. Agent Analytics (`GET /api/v1/analytics/agents`)
+
+Returns paginated per-agent activity, historical denial rates, evaluation latencies, and empirical trust scores.
+
+#### Query Parameters:
+- `start_time` (optional ISO 8601 string)
+- `end_time` (optional ISO 8601 string)
+- `page`: Integer $\ge 1$ (default: 1)
+- `page_size`: Integer between 1 and 100 (default: 20)
+
+#### Example Response:
+```json
+{
+  "items": [
+    {
+      "agent_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+      "agent_name": "billing-bot",
+      "agent_environment": "PRODUCTION",
+      "total_invocations": 80,
+      "allow_count": 72,
+      "deny_count": 8,
+      "require_approval_count": 0,
+      "historical_denial_rate": 0.1,
+      "risk_distribution": {"LOW": 60, "MEDIUM": 20},
+      "total_tool_executions": 72,
+      "avg_evaluation_duration_ms": 14.25,
+      "calculated_trust_score": 96.0,
+      "profile_violation_rate": 0.02,
+      "history_status": "VALID"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_items": 1,
+    "total_pages": 1
+  },
+  "start_time": "2026-11-05T00:00:00Z",
+  "end_time": "2026-11-12T00:00:00Z"
+}
+```
+---
+
+### 5. Tool Utilization (`GET /api/v1/analytics/tools`)
+
+Returns paginated per-tool invocation frequency, execution success rates, and average latencies.
+
+#### Query Parameters:
+- `start_time` (optional ISO 8601 string)
+- `end_time` (optional ISO 8601 string)
+- `page`: Integer $\ge 1$ (default: 1)
+- `page_size`: Integer between 1 and 100 (default: 20)
+
+#### Example Response:
+```json
+{
+  "items": [
+    {
+      "tool_id": "c3d9b1a0-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+      "tool_name": "SQL Executor",
+      "tool_slug": "sql-executor",
+      "invocation_count": 120,
+      "allow_count": 115,
+      "deny_count": 5,
+      "require_approval_count": 0,
+      "execution_count": 115,
+      "execution_success_count": 112,
+      "execution_failed_count": 3,
+      "execution_timeout_count": 0,
+      "avg_evaluation_duration_ms": 11.8,
+      "avg_execution_duration_ms": 145.2,
+      "risk_distribution": {"LOW": 110, "MEDIUM": 10}
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_items": 1,
+    "total_pages": 1
+  },
+  "start_time": "2026-11-05T00:00:00Z",
+  "end_time": "2026-11-12T00:00:00Z"
+}
+```
+---
+
+### 6. Anomaly Detection (`GET /api/v1/analytics/anomalies`)
+
+Executes read-only statistical evaluation of denial rate spikes, critical risk surges, and latency SLA degradations.
+
+#### Query Parameters:
+- `evaluation_time` (optional ISO 8601 reference timestamp, defaults to `now(UTC)`)
+
+#### Example Response:
+```json
+{
+  "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa0",
+  "evaluated_at": "2026-11-12T12:00:00Z",
+  "findings": [
+    {
+      "anomaly_type": "DENIAL_RATE_SPIKE",
+      "severity": "INFO",
+      "status": "NORMAL",
+      "current_value": 0.04,
+      "baseline_value": 0.03,
+      "threshold": 0.075,
+      "current_samples": 45,
+      "baseline_samples": 320,
+      "explanation": "Governance denial rate is within normal operating baseline.",
+      "evaluated_at": "2026-11-12T12:00:00Z"
+    },
+    {
+      "anomaly_type": "CRITICAL_RISK_SURGE",
+      "severity": "INFO",
+      "status": "NORMAL",
+      "current_value": 0.05,
+      "baseline_value": null,
+      "threshold": 0.15,
+      "current_samples": 45,
+      "baseline_samples": null,
+      "explanation": "Critical risk assessment rate is within normal operational limits.",
+      "evaluated_at": "2026-11-12T12:00:00Z"
+    },
+    {
+      "anomaly_type": "LATENCY_SLA_DEGRADATION",
+      "severity": "INFO",
+      "status": "NORMAL",
+      "current_value": 18.2,
+      "baseline_value": 16.5,
+      "threshold": 50.0,
+      "current_samples": 45,
+      "baseline_samples": 320,
+      "explanation": "Governance evaluation p95 latency meets operational SLA.",
+      "evaluated_at": "2026-11-12T12:00:00Z"
+    }
+  ]
 }
 ```

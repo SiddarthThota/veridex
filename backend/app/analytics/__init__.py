@@ -1,0 +1,65 @@
+"""Veridex Governance Analytics Engine (Phase 8.3)."""
+
+from app.analytics.anomalies import AnomalyDetector
+from app.analytics.exceptions import (
+    AnalyticsError,
+    InvalidGranularityError,
+    InvalidPaginationError,
+    InvalidTimeRangeError,
+    TenantIsolationError,
+)
+from app.analytics.queries import AnalyticsQueries
+from app.analytics.schemas import (
+    AgentAnalyticsItem,
+    AgentAnalyticsResponse,
+    AnomalyFinding,
+    AnomalyReport,
+    AnomalySeverity,
+    AnomalyStatus,
+    AnomalyType,
+    Granularity,
+    HeuristicFrequencyItem,
+    HeuristicFrequencyResponse,
+    LatencyAnalyticsResponse,
+    LatencyMetricStats,
+    OverviewAnalytics,
+    PaginationMeta,
+    RiskDistributionAnalytics,
+    RiskHistogramBucket,
+    ToolUtilizationItem,
+    ToolUtilizationResponse,
+    TrendBucket,
+    TrendsAnalytics,
+)
+from app.analytics.service import AnalyticsService
+
+__all__ = [
+    "AgentAnalyticsItem",
+    "AgentAnalyticsResponse",
+    "AnalyticsError",
+    "AnalyticsQueries",
+    "AnalyticsService",
+    "AnomalyDetector",
+    "AnomalyFinding",
+    "AnomalyReport",
+    "AnomalySeverity",
+    "AnomalyStatus",
+    "AnomalyType",
+    "Granularity",
+    "HeuristicFrequencyItem",
+    "HeuristicFrequencyResponse",
+    "InvalidGranularityError",
+    "InvalidPaginationError",
+    "InvalidTimeRangeError",
+    "LatencyAnalyticsResponse",
+    "LatencyMetricStats",
+    "OverviewAnalytics",
+    "PaginationMeta",
+    "RiskDistributionAnalytics",
+    "RiskHistogramBucket",
+    "TenantIsolationError",
+    "ToolUtilizationItem",
+    "ToolUtilizationResponse",
+    "TrendBucket",
+    "TrendsAnalytics",
+]

@@ -16,8 +16,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler for startup/shutdown."""
     logger = get_logger("veridex.lifespan")
     logger.info("Starting Veridex", version=get_settings().app_version)
+
+    # Initialize OpenTelemetry instrumentation and providers
+    from app.database.session import engine
+    from app.telemetry.setup import init_telemetry, shutdown_telemetry
+
+    init_telemetry(app=app, engine=engine)
+
     yield
+
     logger.info("Shutting down Veridex")
+    shutdown_telemetry(timeout_seconds=5.0)
 
 
 def create_app() -> FastAPI:

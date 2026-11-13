@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.agents import router as agents_router
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.governance import router as governance_router
 from app.api.v1.health import router as health_router
@@ -24,3 +25,4 @@ api_v1_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_v1_router.include_router(governance_router, prefix="/governance", tags=["governance"])
 api_v1_router.include_router(policies_router)
 api_v1_router.include_router(risk_router)
+api_v1_router.include_router(analytics_router)
