@@ -84,6 +84,16 @@ class GovernanceEvaluationOutcome:
     trace_data: dict[str, Any] = field(default_factory=dict)
     risk_evaluation: RiskEvaluationResult | None = None
 
+    def __iter__(self) -> Any:
+        """Enable unpacking as a 5-tuple for backward compatibility with existing callers and tests."""
+        return iter((self.decision, self.violation_codes, self.reason, self.tool, self.tool_version))
+
+    def __getitem__(self, index: int) -> Any:
+        return (self.decision, self.violation_codes, self.reason, self.tool, self.tool_version)[index]
+
+    def __len__(self) -> int:
+        return 5
+
 
 class GovernanceService:
     """Service managing AgentRuns, governance evaluations, invocations, and approvals."""
@@ -218,8 +228,17 @@ class GovernanceService:
 
         integrity_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
 
+        if isinstance(outcome, tuple):
+            decision = outcome[0]
+            violation_codes_raw = outcome[1]
+            reason = outcome[2]
+        else:
+            decision = outcome.decision
+            violation_codes_raw = outcome.violation_codes
+            reason = outcome.reason
+
         v_codes: list[GovernanceViolationCode] = []
-        for c in outcome.violation_codes:
+        for c in violation_codes_raw:
             if isinstance(c, GovernanceViolationCode):
                 v_codes.append(c)
             elif isinstance(c, str):
@@ -227,12 +246,12 @@ class GovernanceService:
                     v_codes.append(GovernanceViolationCode(c))
 
         return GovernanceEvaluateResponse(
-            decision=outcome.decision,
+            decision=decision,
             violation_codes=v_codes,
-            reason=outcome.reason,
+            reason=reason,
             evaluated_at=datetime.now(UTC),
             integrity_hash=integrity_hash,
-            approval_required=(outcome.decision == GovernanceDecision.REQUIRE_APPROVAL),
+            approval_required=(decision == GovernanceDecision.REQUIRE_APPROVAL),
             tool_id=request.tool_id,
             tool_version_id=request.tool_version_id,
         )
@@ -672,12 +691,21 @@ class GovernanceService:
                 eval_end_ns = time.perf_counter_ns()
                 eval_duration_ms = (eval_end_ns - eval_start_ns) / 1_000_000.0
             duration_sec = time.monotonic() - eval_start_time
-            decision = outcome.decision
-            violation_codes = outcome.violation_codes
-            reason = outcome.reason
-            tool = outcome.tool
-            policy_trace = outcome.trace_data
-            risk_eval = outcome.risk_evaluation
+            if isinstance(outcome, tuple):
+                decision = outcome[0]
+                violation_codes = outcome[1]
+                reason = outcome[2]
+                tool = outcome[3]
+                policy_trace = outcome[5] if len(outcome) > 5 else {}
+                risk_eval = outcome[6] if len(outcome) > 6 else None
+            else:
+                decision = outcome.decision
+                violation_codes = outcome.violation_codes
+                reason = outcome.reason
+                tool = outcome.tool
+                policy_trace = outcome.trace_data
+                risk_eval = outcome.risk_evaluation
+
             arguments_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
 
             dec_str = decision.value if hasattr(decision, "value") else str(decision)
