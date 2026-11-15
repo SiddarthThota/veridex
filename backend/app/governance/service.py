@@ -9,8 +9,10 @@ Enforces deterministic, default-deny governance policies for agent tool invocati
 - Execution isolation via trusted ToolExecutor
 """
 
+import contextlib
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -70,13 +72,24 @@ from app.tools.models import (
 )
 
 
+@dataclass(frozen=True)
+class GovernanceEvaluationOutcome:
+    """Immutable outcome of an internal governance evaluation."""
+
+    decision: GovernanceDecision
+    violation_codes: list[GovernanceViolationCode | str]
+    reason: str
+    tool: Tool | None = None
+    tool_version: ToolVersion | None = None
+    trace_data: dict[str, Any] = field(default_factory=dict)
+    risk_evaluation: RiskEvaluationResult | None = None
+
+
 class GovernanceService:
     """Service managing AgentRuns, governance evaluations, invocations, and approvals."""
 
     def __init__(self, executor: ToolExecutor | None = None) -> None:
         self.executor = executor or default_executor
-        self._last_policy_evaluations: dict[str, Any] = {}
-        self._last_risk_evaluation: RiskEvaluationResult | None = None
 
     # --- Agent Runs ---
 
@@ -194,7 +207,7 @@ class GovernanceService:
         - Does NOT create an executable ToolExecution or persistent ToolRequest.
         - Returns the decision, machine-readable reason codes, and integrity hash.
         """
-        decision, violation_codes, reason, _tool, _tool_version = await self._evaluate_policy(
+        outcome = await self._evaluate_policy(
             db=db,
             organization_id=organization_id,
             agent_id=request.agent_id,
@@ -205,13 +218,21 @@ class GovernanceService:
 
         integrity_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
 
+        v_codes: list[GovernanceViolationCode] = []
+        for c in outcome.violation_codes:
+            if isinstance(c, GovernanceViolationCode):
+                v_codes.append(c)
+            elif isinstance(c, str):
+                with contextlib.suppress(ValueError):
+                    v_codes.append(GovernanceViolationCode(c))
+
         return GovernanceEvaluateResponse(
-            decision=decision,
-            violation_codes=violation_codes,
-            reason=reason,
+            decision=outcome.decision,
+            violation_codes=v_codes,
+            reason=outcome.reason,
             evaluated_at=datetime.now(UTC),
             integrity_hash=integrity_hash,
-            approval_required=(decision == GovernanceDecision.REQUIRE_APPROVAL),
+            approval_required=(outcome.decision == GovernanceDecision.REQUIRE_APPROVAL),
             tool_id=request.tool_id,
             tool_version_id=request.tool_version_id,
         )
@@ -225,17 +246,8 @@ class GovernanceService:
         tool_version_id: uuid.UUID,
         arguments: dict[str, Any],
         run_environment: str = "DEVELOPMENT",
-    ) -> tuple[
-        GovernanceDecision,
-        list[GovernanceViolationCode | str],
-        str,
-        Tool | None,
-        ToolVersion | None,
-    ]:
+    ) -> GovernanceEvaluationOutcome:
         """Internal deterministic governance evaluation implementing strict decision precedence."""
-        self._last_policy_evaluations = {}
-        self._last_risk_evaluation = None
-
         # 1. Agent Validation
         agent_query = select(Agent).where(
             Agent.id == agent_id,
@@ -243,20 +255,20 @@ class GovernanceService:
         )
         agent = (await db.execute(agent_query)).scalar_one_or_none()
         if not agent:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.UNKNOWN_AGENT],
-                f"Agent '{agent_id}' not found in organization",
-                None,
-                None,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.UNKNOWN_AGENT],
+                reason=f"Agent '{agent_id}' not found in organization",
+                tool=None,
+                tool_version=None,
             )
         if agent.status != AgentStatus.ACTIVE:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.INACTIVE_AGENT],
-                f"Agent '{agent_id}' is not active (status: {agent.status})",
-                None,
-                None,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.INACTIVE_AGENT],
+                reason=f"Agent '{agent_id}' is not active (status: {agent.status})",
+                tool=None,
+                tool_version=None,
             )
 
         # 2. Tool Validation
@@ -266,20 +278,20 @@ class GovernanceService:
         )
         tool = (await db.execute(tool_query)).scalar_one_or_none()
         if not tool:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.UNKNOWN_TOOL],
-                f"Tool '{tool_id}' not found in organization",
-                None,
-                None,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.UNKNOWN_TOOL],
+                reason=f"Tool '{tool_id}' not found in organization",
+                tool=None,
+                tool_version=None,
             )
         if tool.status != ToolStatus.ACTIVE:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.INACTIVE_TOOL],
-                f"Tool '{tool_id}' is not active (status: {tool.status})",
-                tool,
-                None,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.INACTIVE_TOOL],
+                reason=f"Tool '{tool_id}' is not active (status: {tool.status})",
+                tool=tool,
+                tool_version=None,
             )
 
         # 3. ToolVersion Validation
@@ -289,20 +301,20 @@ class GovernanceService:
         )
         tool_version = (await db.execute(version_query)).scalar_one_or_none()
         if not tool_version:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.UNPUBLISHED_TOOL_VERSION],
-                f"ToolVersion '{tool_version_id}' not found for tool '{tool_id}'",
-                tool,
-                None,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.UNPUBLISHED_TOOL_VERSION],
+                reason=f"ToolVersion '{tool_version_id}' not found for tool '{tool_id}'",
+                tool=tool,
+                tool_version=None,
             )
         if tool_version.status != ToolVersionStatus.PUBLISHED:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.UNPUBLISHED_TOOL_VERSION],
-                f"ToolVersion '{tool_version.version}' is not published (status: {tool_version.status})",
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.UNPUBLISHED_TOOL_VERSION],
+                reason=f"ToolVersion '{tool_version.version}' is not published (status: {tool_version.status})",
+                tool=tool,
+                tool_version=tool_version,
             )
 
         # 4. Agent Tool Permission Check
@@ -312,12 +324,12 @@ class GovernanceService:
         )
         permission = (await db.execute(perm_query)).scalar_one_or_none()
         if not permission or not permission.allowed:
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.PERMISSION_DENIED],
-                f"Agent '{agent.name}' does not have permission to invoke tool '{tool.name}'",
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.PERMISSION_DENIED],
+                reason=f"Agent '{agent.name}' does not have permission to invoke tool '{tool.name}'",
+                tool=tool,
+                tool_version=tool_version,
             )
 
         # 5. Schema Validation
@@ -325,20 +337,20 @@ class GovernanceService:
             try:
                 jsonschema.validate(instance=arguments, schema=tool_version.input_schema)
             except jsonschema.ValidationError as err:
-                return (
-                    GovernanceDecision.DENY,
-                    [GovernanceViolationCode.INVALID_ARGUMENTS],
-                    f"Arguments failed schema validation: {err.message}",
-                    tool,
-                    tool_version,
+                return GovernanceEvaluationOutcome(
+                    decision=GovernanceDecision.DENY,
+                    violation_codes=[GovernanceViolationCode.INVALID_ARGUMENTS],
+                    reason=f"Arguments failed schema validation: {err.message}",
+                    tool=tool,
+                    tool_version=tool_version,
                 )
             except Exception as exc:  # noqa: BLE001
-                return (
-                    GovernanceDecision.DENY,
-                    [GovernanceViolationCode.INVALID_ARGUMENTS],
-                    f"Schema validation error: {exc}",
-                    tool,
-                    tool_version,
+                return GovernanceEvaluationOutcome(
+                    decision=GovernanceDecision.DENY,
+                    violation_codes=[GovernanceViolationCode.INVALID_ARGUMENTS],
+                    reason=f"Schema validation error: {exc}",
+                    tool=tool,
+                    tool_version=tool_version,
                 )
 
         # Stage 2: Risk Engine Quantitative Calculation & Risk Denial Pre-Check
@@ -383,16 +395,16 @@ class GovernanceService:
                 total_violations=violation_count,
                 config_version=selected_version,
             )
-            self._last_risk_evaluation = risk_eval
         except Exception as exc:
             # Fail closed on risk evaluation errors
-            self._last_risk_evaluation = None
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.RISK_EVALUATION_FAILED],
-                f"Risk evaluation failed (fail-closed): {exc}",
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.RISK_EVALUATION_FAILED],
+                reason=f"Risk evaluation failed (fail-closed): {exc}",
+                tool=tool,
+                tool_version=tool_version,
+                trace_data={},
+                risk_evaluation=None,
             )
 
         deny_threshold = selected_version.deny_threshold if selected_version else DEFAULT_DENY_THRESHOLD
@@ -400,20 +412,22 @@ class GovernanceService:
 
         # Risk Denial Pre-Check: risk_score >= deny_threshold -> DENY
         if risk_eval.risk_score >= deny_threshold:
-            self._last_policy_evaluations = {
+            risk_deny_trace: dict[str, Any] = {
                 "tier1_checks": "PASSED",
                 "risk_score": risk_eval.risk_score,
                 "risk_level": risk_eval.risk_level.value,
                 "deny_threshold": deny_threshold,
                 "decision": "DENY",
-                "reason": (f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})"),
+                "reason": f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})",
             }
-            return (
-                GovernanceDecision.DENY,
-                [GovernanceViolationCode.CRITICAL_RISK_THRESHOLD_EXCEEDED],
-                f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})",
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=[GovernanceViolationCode.CRITICAL_RISK_THRESHOLD_EXCEEDED],
+                reason=f"Risk score ({risk_eval.risk_score}) exceeds critical deny threshold ({deny_threshold})",
+                tool=tool,
+                tool_version=tool_version,
+                trace_data=risk_deny_trace,
+                risk_evaluation=risk_eval,
             )
 
         # Stage 3: Declarative Policy Engine Evaluation
@@ -446,13 +460,14 @@ class GovernanceService:
         # Policy Precedence Rule: DENY always wins
         if policy_action == PolicyAction.DENY:
             combined_reason = "; ".join(policy_remediations) or "Denied by active organization policy"
-            self._last_policy_evaluations = {**trace_data, "decision": "DENY"}
-            return (
-                GovernanceDecision.DENY,
-                policy_violations,
-                combined_reason,
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.DENY,
+                violation_codes=policy_violations,
+                reason=combined_reason,
+                tool=tool,
+                tool_version=tool_version,
+                trace_data={**trace_data, "decision": "DENY"},
+                risk_evaluation=risk_eval,
             )
 
         # Stage 4: Approval Synthesis
@@ -485,27 +500,29 @@ class GovernanceService:
             all_reasons = approval_reasons + policy_remediations
             combined_reason = "; ".join(all_reasons)
 
-            self._last_policy_evaluations = {
-                **trace_data,
-                "decision": "REQUIRE_APPROVAL",
-                "baseline_triggers": approval_reasons,
-            }
-            return (
-                GovernanceDecision.REQUIRE_APPROVAL,
-                combined_violations,
-                combined_reason,
-                tool,
-                tool_version,
+            return GovernanceEvaluationOutcome(
+                decision=GovernanceDecision.REQUIRE_APPROVAL,
+                violation_codes=combined_violations,
+                reason=combined_reason,
+                tool=tool,
+                tool_version=tool_version,
+                trace_data={
+                    **trace_data,
+                    "decision": "REQUIRE_APPROVAL",
+                    "baseline_triggers": approval_reasons,
+                },
+                risk_evaluation=risk_eval,
             )
 
         # Stage 5: ALLOW - Every check passed cleanly
-        self._last_policy_evaluations = {**trace_data, "decision": "ALLOW"}
-        return (
-            GovernanceDecision.ALLOW,
-            [],
-            "All governance policies and security checks passed",
-            tool,
-            tool_version,
+        return GovernanceEvaluationOutcome(
+            decision=GovernanceDecision.ALLOW,
+            violation_codes=[],
+            reason="All governance policies and security checks passed",
+            tool=tool,
+            tool_version=tool_version,
+            trace_data={**trace_data, "decision": "ALLOW"},
+            risk_evaluation=risk_eval,
         )
 
     # --- Tool Execution with Telemetry ---
@@ -625,7 +642,7 @@ class GovernanceService:
                         duration_seconds=duration_sec,
                     )
                     return ToolInvocationResponse(
-                        run_id=existing_req.run_id,
+                        run_id=existing_req.run_id or run.id,
                         tool_request_id=existing_req.id,
                         decision=existing_req.decision,
                         violation_codes=existing_req.violation_codes,
@@ -642,7 +659,7 @@ class GovernanceService:
             # Governance Evaluation Timing Boundary
             eval_start_ns = time.perf_counter_ns()
             try:
-                decision, violation_codes, reason, tool, _tool_version = await self._evaluate_policy(
+                outcome = await self._evaluate_policy(
                     db=db,
                     organization_id=organization_id,
                     agent_id=request.agent_id,
@@ -655,8 +672,12 @@ class GovernanceService:
                 eval_end_ns = time.perf_counter_ns()
                 eval_duration_ms = (eval_end_ns - eval_start_ns) / 1_000_000.0
             duration_sec = time.monotonic() - eval_start_time
-            policy_trace = self._last_policy_evaluations
-            risk_eval = self._last_risk_evaluation
+            decision = outcome.decision
+            violation_codes = outcome.violation_codes
+            reason = outcome.reason
+            tool = outcome.tool
+            policy_trace = outcome.trace_data
+            risk_eval = outcome.risk_evaluation
             arguments_hash = compute_arguments_hash(request.tool_version_id, request.arguments)
 
             dec_str = decision.value if hasattr(decision, "value") else str(decision)

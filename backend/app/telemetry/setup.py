@@ -6,11 +6,6 @@ from typing import Any
 
 from fastapi import FastAPI
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
@@ -193,6 +188,8 @@ def init_telemetry(
             tracer_provider.add_span_processor(SimpleSpanProcessor(custom_span_exporter))
         else:
             # Production BatchSpanProcessor with exact bounded capacities
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
             otlp_trace_exporter = OTLPSpanExporter(
                 endpoint=settings.otel_exporter_endpoint,
                 insecure=True,
@@ -222,6 +219,8 @@ def init_telemetry(
         if custom_metric_reader is not None:
             metric_readers.append(custom_metric_reader)
         else:
+            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
             otlp_metric_exporter = OTLPMetricExporter(
                 endpoint=settings.otel_exporter_endpoint,
                 insecure=True,
@@ -257,6 +256,8 @@ def init_telemetry(
         # 3. Auto-instrumentation
         # A. FastAPI Instrumentation
         if app is not None and not getattr(app.state, "_otel_instrumented", False):
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
             FastAPIInstrumentor.instrument_app(
                 app,
                 tracer_provider=tracer_provider,
@@ -269,6 +270,8 @@ def init_telemetry(
         if engine is not None:
             sync_engine = getattr(engine, "sync_engine", engine)
             if not getattr(sync_engine, "_otel_instrumented", False):
+                from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
                 SQLAlchemyInstrumentor().instrument(
                     engine=sync_engine,
                     tracer_provider=tracer_provider,
@@ -277,6 +280,8 @@ def init_telemetry(
                 sync_engine._otel_instrumented = True
 
         # C. HTTPX Client Instrumentation
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
         if not getattr(HTTPXClientInstrumentor, "_is_instrumented", False):
             HTTPXClientInstrumentor().instrument(
                 tracer_provider=tracer_provider,

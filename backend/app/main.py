@@ -14,8 +14,28 @@ from app.common.logging import get_logger, setup_logging
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler for startup/shutdown."""
+    settings = get_settings()
     logger = get_logger("veridex.lifespan")
-    logger.info("Starting Veridex", version=get_settings().app_version)
+
+    # Production startup security safeguards (SEC-05)
+    if settings.environment == "production":
+        if settings.debug:
+            raise RuntimeError(
+                "CRITICAL SECURITY VIOLATION: debug mode must NOT be enabled in production environment"
+            )
+        known_insecure_keys = {
+            "CHANGE-ME-IN-PRODUCTION-USE-A-REAL-SECRET-KEY",
+            "dev-secret-key-change-in-production",
+            "test-secret-key",
+            "secret",
+        }
+        if settings.secret_key in known_insecure_keys or len(settings.secret_key) < 32:
+            raise RuntimeError(
+                "CRITICAL SECURITY VIOLATION: production secret_key must be at least 32 characters "
+                "and cannot use default/known placeholder keys"
+            )
+
+    logger.info("Starting Veridex", version=settings.app_version)
 
     # Initialize OpenTelemetry instrumentation and providers
     from app.database.session import engine

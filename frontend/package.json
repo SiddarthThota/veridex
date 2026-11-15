@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node test-phase-9-1.mjs && node test-route-handlers.mjs && node test-phase-9-2.mjs && node test-phase-9-3.mjs && node test-phase-9-4.mjs && node test-phase-9-5.mjs"
+    "test": "node test-phase-9-1.mjs && node test-route-handlers.mjs && node test-phase-9-2.mjs && node test-phase-9-3.mjs && node test-phase-9-4.mjs && node test-phase-9-5.mjs && node test-phase-9-6.mjs && node test-phase-9-7.mjs"
   },
   "dependencies": {
     "next": "16.3.7",
