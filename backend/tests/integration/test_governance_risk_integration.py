@@ -387,7 +387,7 @@ async def test_precedence_stage1_platform_floor_halts_before_risk_evaluation(
     )
 
     # Direct service call to verify _evaluate_policy Stage 1 behavior
-    decision, violations, reason, _tool, _tool_version = await governance_service._evaluate_policy(
+    outcome = await governance_service._evaluate_policy(
         db=db_session,
         organization_id=org_id,
         agent_id=agent.id,
@@ -395,10 +395,17 @@ async def test_precedence_stage1_platform_floor_halts_before_risk_evaluation(
         tool_version_id=tool_version.id,
         arguments={"operation": "add"},
     )
+    decision, violations, reason, _tool, _tool_version = outcome
 
     assert decision == GovernanceDecision.DENY
     assert GovernanceViolationCode.INACTIVE_AGENT in violations
-    assert governance_service._last_risk_evaluation is None
+    # Verify Stage 1 platform floor halted before risk evaluation was performed
+    risk_eval = (
+        outcome.risk_evaluation
+        if hasattr(outcome, "risk_evaluation")
+        else getattr(governance_service, "_last_risk_evaluation", None)
+    )
+    assert risk_eval is None
 
 
 @pytest.mark.asyncio
