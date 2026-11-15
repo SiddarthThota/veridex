@@ -11,7 +11,6 @@ Verifies strict tenant isolation across all Veridex subsystems:
 """
 
 import uuid
-from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -39,12 +38,6 @@ from app.tools.models import (
     ToolRiskLevel,
     ToolStatus,
 )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_database() -> Generator[None, None, None]:
-    """Bypass database initialization for pure unit tests."""
-    yield
 
 
 def _create_mock_agent(org_id: uuid.UUID, agent_id: uuid.UUID) -> Agent:

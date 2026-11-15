@@ -10,7 +10,6 @@ Validates remediation of SEC-01:
 import asyncio
 import secrets
 import uuid
-from collections.abc import Generator
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from typing import Any
@@ -42,12 +41,6 @@ from app.tools.models import (
     ToolVersion,
     ToolVersionStatus,
 )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_database() -> Generator[None, None, None]:
-    """Bypass database initialization for pure unit concurrency tests."""
-    yield
 
 
 def _build_test_harness(

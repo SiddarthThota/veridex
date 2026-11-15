@@ -22,7 +22,6 @@ Covers all 18 core governance workflows:
 """
 
 import uuid
-from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -62,12 +61,6 @@ from app.tools.models import (
     ToolVersion,
     ToolVersionStatus,
 )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_database() -> Generator[None, None, None]:
-    """Bypass database initialization for pure unit/integration harness."""
-    yield
 
 
 def _build_test_environment(org_id: uuid.UUID) -> dict[str, Any]:

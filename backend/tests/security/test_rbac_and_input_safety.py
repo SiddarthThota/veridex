@@ -10,7 +10,6 @@ Verifies:
 """
 
 import uuid
-from collections.abc import Generator
 from datetime import UTC, datetime
 
 import pytest
@@ -20,12 +19,6 @@ from fastapi import HTTPException, status
 import app.users.models  # noqa: F401
 from app.auth.deps import RequireRole
 from app.users.models import Role, User, UserStatus
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_database() -> Generator[None, None, None]:
-    """Bypass database initialization for pure unit tests."""
-    yield
 
 
 def _create_user_with_role(role: Role) -> User:
