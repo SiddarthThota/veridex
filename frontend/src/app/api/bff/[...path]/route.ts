@@ -113,6 +113,15 @@ async function handleProxy(request: NextRequest, context: RouteContext) {
     );
   }
 
+  // VIEWER Role Boundary Enforcement for Execution Forensics:
+  // Backend v0.8.0 strictly excludes VIEWER from /api/v1/runs endpoints.
+  if (topDomain === "runs" && session.user?.role === "VIEWER") {
+    return NextResponse.json(
+      { error: "Forbidden: VIEWER role cannot access execution runs or forensic telemetry" },
+      { status: 403 }
+    );
+  }
+
   const targetPath = path.join("/");
   const urlObj = new URL(request.url);
   const search = urlObj.search;

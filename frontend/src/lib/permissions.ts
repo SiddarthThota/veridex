@@ -254,3 +254,9 @@ export function canReadUsers(role: UserRole | undefined): boolean {
   return role === "ADMIN" || role === "SECURITY_ANALYST" || role === "AUDITOR";
 }
 
+/** Can reveal unmasked arguments and raw execution outputs in forensics inspection */
+export function canRevealSensitiveData(role: UserRole | undefined): boolean {
+  return role === "ADMIN" || role === "SECURITY_ANALYST";
+}
+
+
